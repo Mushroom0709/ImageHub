@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useUIStore, useFilterStore } from '../../stores/uiStore'
 import { TagTree } from '../tags/TagTree'
 
@@ -20,6 +21,7 @@ export function Sidebar() {
   const [category, setCategory] = useState('')
   const starred = useFilterStore((s) => s.starred)
   const trashed = useFilterStore((s) => s.trashed)
+  const navigate = useNavigate()
 
   const toggleStarred = () => {
     useFilterStore.setState({ starred: starred === true ? null : true })
@@ -79,6 +81,11 @@ export function Sidebar() {
           label="🗑 回收站"
           active={trashed}
           onClick={toggleTrashed}
+        />
+        <QuickFilterButton
+          label="📋 待审核"
+          active={false}
+          onClick={() => navigate('/review')}
         />
       </div>
 

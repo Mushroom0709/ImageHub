@@ -3,9 +3,10 @@ import { useUIStore } from '../../stores/uiStore'
 interface Props {
   onUploadClick?: () => void
   onCollectClick?: () => void
+  onBack?: () => void
 }
 
-export function TopBar({ onUploadClick, onCollectClick }: Props) {
+export function TopBar({ onUploadClick, onCollectClick, onBack }: Props) {
   const theme = useUIStore((s) => s.theme)
   const setTheme = useUIStore((s) => s.setTheme)
   const toggleSidebar = useUIStore((s) => s.toggleSidebar)
@@ -15,11 +16,11 @@ export function TopBar({ onUploadClick, onCollectClick }: Props) {
     <header className="h-14 shrink-0 border-b border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 flex items-center px-4 gap-4 z-10">
       {/* 折叠按钮 */}
       <button
-        onClick={toggleSidebar}
+        onClick={onBack || toggleSidebar}
         className="w-8 h-8 rounded-lg flex items-center justify-center text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800"
-        title={collapsed ? '展开侧边栏' : '折叠侧边栏'}
+        title={onBack ? '返回' : collapsed ? '展开侧边栏' : '折叠侧边栏'}
       >
-        {collapsed ? '▶' : '◀'}
+        {onBack ? '←' : collapsed ? '▶' : '◀'}
       </button>
 
       {/* Logo */}

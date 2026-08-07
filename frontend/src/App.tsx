@@ -2,6 +2,7 @@ import { useEffect } from 'react'
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom'
 import { HomePage } from './pages/HomePage'
 import { LoginPage } from './pages/LoginPage'
+import { ReviewPage } from './pages/ReviewPage'
 import { useUIStore } from './stores/uiStore'
 
 /** 路由守卫：未登录跳转登录页 */
@@ -30,6 +31,14 @@ export default function App() {
           element={
             <RequireAuth>
               <HomePage />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/review"
+          element={
+            <RequireAuth>
+              <ReviewPage />
             </RequireAuth>
           }
         />
