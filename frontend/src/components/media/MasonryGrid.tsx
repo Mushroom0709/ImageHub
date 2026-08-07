@@ -3,6 +3,7 @@ import { Asset, assetApi } from '../../lib/api'
 import { useFilterStore, useSelectionStore } from '../../stores/uiStore'
 import { AssetCard } from './AssetCard'
 import { Lightbox } from './Lightbox'
+import { useKeyboardShortcuts } from '../../hooks/useKeyboardShortcuts'
 
 interface Props {
   refreshKey?: number
@@ -86,6 +87,36 @@ export function MasonryGrid({ refreshKey = 0 }: Props) {
     window.addEventListener('keydown', handler)
     return () => window.removeEventListener('keydown', handler)
   }, [lightboxIndex, assets.length])
+
+  // 快捷键：全选/批量打星
+  useKeyboardShortcuts(async (ids) => {
+    await assetApi.batchDelete(ids)
+    useSelectionStore.getState().exitSelectMode()
+    loadPage(1, false)
+  })
+
+  useEffect(() => {
+    const handleSelectAll = () => {
+      const { selectMode, enterSelectMode, selectAll } = useSelectionStore.getState()
+      if (!selectMode) enterSelectMode()
+      selectAll(assets.map((a) => a.id))
+    }
+    const handleStarSelected = async () => {
+      const { selectedIds, clearSelection } = useSelectionStore.getState()
+      const ids = Array.from(selectedIds)
+      for (const id of ids) {
+        await assetApi.update(id, { starred: true })
+      }
+      clearSelection()
+      loadPage(1, false)
+    }
+    window.addEventListener('imagehub:select-all', handleSelectAll)
+    window.addEventListener('imagehub:star-selected', handleStarSelected)
+    return () => {
+      window.removeEventListener('imagehub:select-all', handleSelectAll)
+      window.removeEventListener('imagehub:star-selected', handleStarSelected)
+    }
+  }, [assets, loadPage])
 
   if (initialLoading) {
     return (

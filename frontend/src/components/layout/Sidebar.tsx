@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useUIStore } from '../../stores/uiStore'
+import { useUIStore, useFilterStore } from '../../stores/uiStore'
 import { TagTree } from '../tags/TagTree'
 
 const CATEGORIES = [
@@ -18,6 +18,15 @@ const CATEGORIES = [
 export function Sidebar() {
   const collapsed = useUIStore((s) => s.sidebarCollapsed)
   const [category, setCategory] = useState('')
+  const starred = useFilterStore((s) => s.starred)
+  const trashed = useFilterStore((s) => s.trashed)
+
+  const toggleStarred = () => {
+    useFilterStore.setState({ starred: starred === true ? null : true })
+  }
+  const toggleTrashed = () => {
+    useFilterStore.setState({ trashed: !trashed })
+  }
 
   if (collapsed) {
     return (
@@ -59,10 +68,39 @@ export function Sidebar() {
         ))}
       </div>
 
+      {/* 快捷筛选 */}
+      <div className="p-2 border-b border-zinc-200 dark:border-zinc-800 space-y-0.5">
+        <QuickFilterButton
+          label="⭐ 星标"
+          active={starred === true}
+          onClick={toggleStarred}
+        />
+        <QuickFilterButton
+          label="🗑 回收站"
+          active={trashed}
+          onClick={toggleTrashed}
+        />
+      </div>
+
       {/* 标签树 */}
       <div className="flex-1 overflow-y-auto p-2">
         <TagTree category={category} />
       </div>
     </aside>
+  )
+}
+
+function QuickFilterButton({ label, active, onClick }: { label: string; active: boolean; onClick: () => void }) {
+  return (
+    <button
+      onClick={onClick}
+      className={`w-full px-2 py-1.5 rounded-md text-sm text-left transition-colors ${
+        active
+          ? 'bg-teal-600 text-white'
+          : 'text-zinc-700 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800'
+      }`}
+    >
+      {label}
+    </button>
   )
 }

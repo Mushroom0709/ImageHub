@@ -7,10 +7,17 @@ INDEX_NAME = "assets"
 
 class SearchService:
     def __init__(self):
-        self.client = meilisearch.Client(
-            settings.MEILISEARCH_HOST,
-            api_key=settings.MEILISEARCH_MASTER_KEY,
-        )
+        # Meilisearch SDK 用 master_key 参数（python 版本差异）
+        try:
+            self.client = meilisearch.Client(
+                settings.MEILISEARCH_HOST,
+                api_key=settings.MEILISEARCH_MASTER_KEY,
+            )
+        except TypeError:
+            self.client = meilisearch.Client(
+                settings.MEILISEARCH_HOST,
+                master_key=settings.MEILISEARCH_MASTER_KEY,
+            )
         self._ensure_index()
 
     def _ensure_index(self):

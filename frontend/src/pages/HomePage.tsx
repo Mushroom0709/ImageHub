@@ -4,6 +4,7 @@ import { Sidebar } from '../components/layout/Sidebar'
 import { MasonryGrid } from '../components/media/MasonryGrid'
 import { UploadZone, triggerUpload } from '../components/upload/UploadZone'
 import { CollectDialog } from '../components/collect/CollectDialog'
+import { SelectionToolbar } from '../components/media/SelectionToolbar'
 
 export function HomePage() {
   const [refreshKey, setRefreshKey] = useState(0)
@@ -35,6 +36,8 @@ export function HomePage() {
       </div>
 
       <UploadZone onUploaded={handleUploaded} />
+
+      <SelectionToolbar onChanged={handleUploaded} />
 
       {showCollect && (
         <CollectDialog

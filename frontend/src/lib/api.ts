@@ -2,20 +2,28 @@
 const BASE = '/api'
 
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
+  const token = localStorage.getItem('token')
   const resp = await fetch(`${BASE}${path}`, {
     headers: {
       'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...(options.headers || {}),
     },
     ...options,
   })
+  // 401 跳转登录
+  if (resp.status === 401) {
+    localStorage.removeItem('token')
+    window.location.href = '/login'
+    throw new Error('请先登录')
+  }
   if (!resp.ok) {
     const text = await resp.text()
     throw new Error(text || `HTTP ${resp.status}`)
   }
   const data = await resp.json()
   if (data.code !== 0) {
-    throw new Error(data.message || '请求失败')
+    throw new Error(data.message || data.detail || '请求失败')
   }
   return data.data as T
 }
@@ -85,6 +93,10 @@ export const assetApi = {
   update: (id: string, data: Record<string, unknown>) =>
     request<Asset>(`/assets/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
   remove: (id: string) => request(`/assets/${id}`, { method: 'DELETE' }),
+  batchDelete: (ids: string[]) =>
+    request('/assets/batch-delete', { method: 'POST', body: JSON.stringify(ids) }),
+  batchRecover: (ids: string[]) =>
+    request('/assets/batch-recover', { method: 'POST', body: JSON.stringify(ids) }),
   addTags: (id: string, tagIds: string[]) =>
     request(`/assets/${id}/tags`, { method: 'POST', body: JSON.stringify(tagIds) }),
   removeTag: (id: string, tagId: string) =>

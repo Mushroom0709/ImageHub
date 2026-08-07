@@ -23,9 +23,13 @@ export function CollectDialog({ onClose, onCollected }: Props) {
     setLoading(true)
     setResult(null)
     try {
+      const token = localStorage.getItem('token')
       const resp = await fetch(`/api/collect/${platform}`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
         body: JSON.stringify({ url: url.trim(), auto_tag: true }),
       })
       const data = await resp.json()

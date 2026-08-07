@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Asset } from '../../lib/api'
+import { Asset, assetApi } from '../../lib/api'
 import { useSelectionStore } from '../../stores/uiStore'
 
 interface Props {
@@ -11,6 +11,7 @@ interface Props {
 export function AssetCard({ asset, onClick, selectMode }: Props) {
   const [loaded, setLoaded] = useState(false)
   const [hovered, setHovered] = useState(false)
+  const [starred, setStarred] = useState(asset.starred)
   const toggleSelect = useSelectionStore((s) => s.toggleSelect)
   const selected = useSelectionStore((s) => s.selectedIds.has(asset.id))
   const enterSelectMode = useSelectionStore((s) => s.enterSelectMode)
@@ -20,6 +21,17 @@ export function AssetCard({ asset, onClick, selectMode }: Props) {
       toggleSelect(asset.id)
     } else {
       onClick()
+    }
+  }
+
+  const handleStar = async (e: React.MouseEvent) => {
+    e.stopPropagation()
+    const next = !starred
+    setStarred(next)
+    try {
+      await assetApi.update(asset.id, { starred: next })
+    } catch (err) {
+      setStarred(!next)
     }
   }
 
@@ -76,10 +88,11 @@ export function AssetCard({ asset, onClick, selectMode }: Props) {
           </span>
           <div className="flex gap-1">
             <button
+              onClick={handleStar}
               className={`w-6 h-6 rounded flex items-center justify-center text-xs ${
-                asset.starred ? 'bg-amber-400 text-black' : 'bg-white/20 text-white hover:bg-white/40'
+                starred ? 'bg-amber-400 text-black' : 'bg-white/20 text-white hover:bg-white/40'
               }`}
-              title="星标"
+              title={starred ? '取消星标' : '星标'}
             >
               ★
             </button>

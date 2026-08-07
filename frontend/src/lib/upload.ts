@@ -15,9 +15,13 @@ interface CredentialsResponse {
  * 申请预签名上传凭证
  */
 export async function getUploadCredentials(files: { file_name: string; file_size: number; content_type: string }[]): Promise<CredentialsResponse> {
+  const token = localStorage.getItem('token')
   const resp = await fetch('/api/upload/credentials', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
     body: JSON.stringify({ files }),
   })
   const data = await resp.json()
@@ -57,9 +61,13 @@ export function uploadToObs(uploadUrl: string, file: Blob, onProgress?: (percent
  * 完成上传回调
  */
 export async function completeUpload(uploadId: string, files: { file_index: number; obs_key: string; file_name: string; file_size: number }[]): Promise<string[]> {
+  const token = localStorage.getItem('token')
   const resp = await fetch('/api/upload/complete', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
     body: JSON.stringify({ upload_id: uploadId, files }),
   })
   const data = await resp.json()
