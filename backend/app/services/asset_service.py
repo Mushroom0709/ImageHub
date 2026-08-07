@@ -313,7 +313,21 @@ class AssetService:
             return
         try:
             base_key = asset.obs_key
-            # raw/image/xxx → thumb/small/xxx
+            if asset.asset_type == "video":
+                # 视频用封面帧作为缩略图源
+                cover_key = base_key.rsplit(".", 1)[0] + "_cover.jpg" if "." in base_key else base_key + "_cover"
+                asset.thumb_small = obs_service.generate_presigned_url(
+                    cover_key.replace("raw/", "thumb/small/", 1) if "raw/" in cover_key else f"thumb/small/{cover_key}",
+                    expires=3600,
+                )
+                asset.thumb_medium = obs_service.generate_presigned_url(
+                    cover_key.replace("raw/", "thumb/medium/", 1) if "raw/" in cover_key else f"thumb/medium/{cover_key}",
+                    expires=3600,
+                )
+                asset.thumb_raw = obs_service.generate_presigned_url(cover_key, expires=3600)
+                return
+
+            # 图片: raw/image/xxx → thumb/small/xxx
             small_key = base_key.replace("raw/", "thumb/small/", 1) if "raw/" in base_key else f"thumb/small/{base_key}"
             medium_key = base_key.replace("raw/", "thumb/medium/", 1) if "raw/" in base_key else f"thumb/medium/{base_key}"
             asset.thumb_small = obs_service.generate_presigned_url(small_key, expires=3600)

@@ -139,7 +139,7 @@ export function MasonryGrid({ refreshKey = 0 }: Props) {
   }
 
   return (
-    <div className="h-full overflow-y-auto" data-testid="masonry-scroll">
+    <div className="h-full overflow-y-auto pb-14 md:pb-0" data-testid="masonry-scroll">
       <div className="columns-2 md:columns-3 lg:columns-4 xl:columns-5 gap-3 p-4">
         {assets.map((asset, idx) => (
           <div key={asset.id} className="mb-3 break-inside-avoid">

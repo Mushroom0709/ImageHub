@@ -5,6 +5,7 @@ import { MasonryGrid } from '../components/media/MasonryGrid'
 import { UploadZone, triggerUpload } from '../components/upload/UploadZone'
 import { CollectDialog } from '../components/collect/CollectDialog'
 import { SelectionToolbar } from '../components/media/SelectionToolbar'
+import { MobileNav } from '../components/layout/MobileNav'
 
 export function HomePage() {
   const [refreshKey, setRefreshKey] = useState(0)
@@ -45,6 +46,9 @@ export function HomePage() {
           onCollected={handleCollected}
         />
       )}
+
+      {/* 移动端底部导航 */}
+      <MobileNav />
     </div>
   )
 }

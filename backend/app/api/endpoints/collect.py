@@ -175,6 +175,18 @@ def collect_douyin(data: CollectRequest, db: Session = Depends(get_db)):
             file_name=f"douyin_{task.id}.{ext}",
         )
         db.add(asset)
+        db.flush()
+
+        # 抽封面帧 + 生成缩略图
+        try:
+            from app.services.video_service import video_service
+            w, h = video_service.process(obs_key)
+            if w and h:
+                asset.width = w
+                asset.height = h
+        except Exception as e:
+            print(f"[采集] 视频封面处理失败: {e}")
+
         db.commit()
         db.refresh(asset)
 
