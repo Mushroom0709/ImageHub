@@ -1,4 +1,5 @@
 import { useUIStore } from '../../stores/uiStore'
+import { SearchBar } from '../search/SearchBar'
 
 interface Props {
   onUploadClick?: () => void
@@ -30,17 +31,8 @@ export function TopBar({ onUploadClick, onCollectClick, onBack }: Props) {
         </span>
       </div>
 
-      {/* 搜索框占位 */}
-      <div className="flex-1 max-w-md">
-        <div className="relative">
-          <input
-            type="text"
-            placeholder="搜索素材、标签..."
-            className="w-full px-4 py-1.5 pl-9 rounded-lg bg-zinc-100 dark:bg-zinc-800 border border-transparent focus:border-teal-500 focus:outline-none text-sm"
-          />
-          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400 text-sm">🔍</span>
-        </div>
-      </div>
+      {/* 搜索框 */}
+      <SearchBar />
 
       {/* 右侧操作 */}
       <div className="flex items-center gap-2 ml-auto">

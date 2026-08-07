@@ -154,6 +154,23 @@ class AssetService:
         asset.tags = self._get_asset_tags(asset.id)
         self._fill_thumb_urls(asset)
 
+        # 同步到 Meilisearch 索引（搜索）
+        try:
+            from app.services.search_service import search_service
+            search_service.index_asset({
+                "id": str(asset.id),
+                "title": asset.title,
+                "description": asset.description,
+                "file_name": asset.file_name,
+                "tags": [{"name": t.name} for t in asset.tags],
+                "source_type": asset.source_type,
+                "starred": asset.starred,
+                "flag_level": asset.flag_level,
+                "asset_type": asset.asset_type,
+            })
+        except Exception as e:
+            print(f"[Meilisearch] 索引失败: {e}")
+
         # TODO: 触发 AI 打标异步任务（如果 auto_tag=True）
         return asset
 

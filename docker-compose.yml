@@ -12,6 +12,7 @@ services:
       - DATABASE_URL=postgresql+psycopg2://imagehub:imagehub@db:5432/imagehub
       - REDIS_HOST=redis
       - MEILISEARCH_HOST=http://meilisearch:7700
+      - MEILISEARCH_MASTER_KEY=${MEILISEARCH_MASTER_KEY}
       - OBS_ACCESS_KEY=${OBS_ACCESS_KEY}
       - OBS_SECRET_KEY=${OBS_SECRET_KEY}
       - OBS_ENDPOINT=${OBS_ENDPOINT}
