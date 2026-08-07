@@ -76,8 +76,28 @@ export async function completeUpload(uploadId: string, files: { file_index: numb
 }
 
 /**
- * 一站式上传：凭证 → 直传 → 完成回调
+ * 批量导入（多文件直接走后端，支持 ARW/RAW 大文件）
+ * 返回导入结果
  */
+export async function bulkImport(files: File[], onProgress?: (done: number, total: number) => void): Promise<{ done: number; failed: number; skipped: number }> {
+  const token = localStorage.getItem('token')
+  const formData = new FormData()
+  for (const file of files) {
+    formData.append('files', file)
+  }
+
+  const resp = await fetch('/api/import/upload', {
+    method: 'POST',
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+    body: formData,
+  })
+  const data = await resp.json()
+  if (data.code !== 0) throw new Error(data.message || '导入失败')
+  onProgress?.(data.data.done, data.data.total)
+  return data.data
+}
+
+/** 一站式上传：凭证 → 直传 → 完成回调 */
 export async function uploadFiles(
   files: File[],
   onFileProgress?: (index: number, percent: number) => void,

@@ -1,5 +1,5 @@
 import { useRef, useState, useCallback } from 'react'
-import { uploadFiles } from '../../lib/upload'
+import { bulkImport } from '../../lib/upload'
 
 interface UploadItem {
   id: string
@@ -16,17 +16,22 @@ export function UploadZone({ onUploaded }: Props) {
   const [dragging, setDragging] = useState(false)
   const [items, setItems] = useState<UploadItem[]>([])
   const [showPanel, setShowPanel] = useState(false)
+  const [importing, setImporting] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
-  const handleFiles = useCallback(async (files: FileList | File[]) => {
-    const fileList = Array.from(files).filter((f) =>
-      /\.(jpg|jpeg|png|webp|gif|tiff|arw|mp4|mov)$/i.test(f.name),
+  // 处理拖拽/选择（支持文件夹，通过 webkitRelativePath 识别）
+  const handleDropFiles = useCallback(async (files: File[]) => {
+    // 过滤支持的格式
+    const supported = files.filter((f) =>
+      /\.(jpg|jpeg|png|webp|gif|tiff|bmp|arw|raw|cr2|nef|dng|mp4|mov|avi|mkv)$/i.test(f.name),
     )
-    if (fileList.length === 0) return
+    if (supported.length === 0) return
 
-    const newItems: UploadItem[] = fileList.map((f) => ({
+    // 用批量导入（支持 ARW 大文件）
+    setImporting(true)
+    const newItems: UploadItem[] = supported.map((f) => ({
       id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
-      name: f.name,
+      name: f.webkitRelativePath || f.name,
       status: 'uploading',
       progress: 0,
     }))
@@ -34,40 +39,52 @@ export function UploadZone({ onUploaded }: Props) {
     setShowPanel(true)
 
     try {
-      await uploadFiles(
-        fileList,
-        (index, percent) => {
-          setItems((prev) =>
-            prev.map((item, i) =>
-              i === index
-                ? { ...item, status: percent < 0 ? 'failed' : 'uploading', progress: percent < 0 ? 0 : percent }
-                : item,
-            ),
-          )
-        },
-        (index) => {
-          setItems((prev) =>
-            prev.map((item, i) => (i === index ? { ...item, status: 'done', progress: 100 } : item)),
-          )
-        },
-      )
+      await bulkImport(supported, (done, total) => {
+        setItems((prev) => prev.map((item, i) => (i < done ? { ...item, status: 'done', progress: 100 } : item)))
+      })
+      setItems((prev) => prev.map((item) => ({ ...item, status: 'done', progress: 100 })))
       onUploaded()
     } catch (err) {
-      console.error('上传失败', err)
+      console.error('导入失败', err)
+      setItems((prev) => prev.map((item) => ({ ...item, status: 'failed' })))
+    } finally {
+      setImporting(false)
     }
   }, [onUploaded])
 
-  // 拖拽事件
+  // 拖拽事件（支持文件夹递归）
   const handleDragOver = (e: React.DragEvent) => {
     e.preventDefault()
     setDragging(true)
   }
   const handleDragLeave = () => setDragging(false)
-  const handleDrop = (e: React.DragEvent) => {
+
+  const collectEntries = async (entries: FileSystemEntry[]): Promise<File[]> => {
+    const files: File[] = []
+    for (const entry of entries) {
+      if (entry.isFile) {
+        const file = await new Promise<File>((resolve) => (entry as FileSystemFileEntry).file(resolve))
+        files.push(file)
+      } else if (entry.isDirectory) {
+        const reader = (entry as FileSystemDirectoryEntry).createReader()
+        const subEntries = await new Promise<FileSystemEntry[]>((resolve) => reader.readEntries(resolve))
+        files.push(...(await collectEntries(subEntries)))
+      }
+    }
+    return files
+  }
+
+  const handleDrop = async (e: React.DragEvent) => {
     e.preventDefault()
     setDragging(false)
-    if (e.dataTransfer.files) {
-      handleFiles(e.dataTransfer.files)
+    const items = Array.from(e.dataTransfer.items || [])
+    const hasEntryMethod = items.length > 0 && typeof items[0].webkitGetAsEntry === 'function'
+    if (hasEntryMethod) {
+      const entries = items.map((i) => i.webkitGetAsEntry()).filter(Boolean) as FileSystemEntry[]
+      const files = await collectEntries(entries)
+      handleDropFiles(files)
+    } else if (e.dataTransfer.files) {
+      handleDropFiles(Array.from(e.dataTransfer.files))
     }
   }
 
@@ -136,7 +153,7 @@ export function UploadZone({ onUploaded }: Props) {
         accept="image/*,video/*,.arw,.raw"
         className="hidden"
         onChange={(e) => {
-          if (e.target.files) handleFiles(e.target.files)
+          if (e.target.files) handleDropFiles(Array.from(e.target.files))
           e.target.value = ''
         }}
       />
