@@ -2,3 +2,7 @@ node_modules
 dist
 .DS_Store
 *.local
+
+# tsc -b 生成的编译产物
+frontend/vite.config.js
+frontend/vite.config.d.ts
