@@ -7,6 +7,7 @@ WORKDIR /app
 ENV DEBIAN_FRONTEND=noninteractive TZ=UTC
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
+    dcraw \
     libimage-exiftool-perl \
     && rm -rf /var/lib/apt/lists/*
 
