@@ -1,0 +1,118 @@
+/** API 客户端 */
+const BASE = '/api'
+
+async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
+  const resp = await fetch(`${BASE}${path}`, {
+    headers: {
+      'Content-Type': 'application/json',
+      ...(options.headers || {}),
+    },
+    ...options,
+  })
+  if (!resp.ok) {
+    const text = await resp.text()
+    throw new Error(text || `HTTP ${resp.status}`)
+  }
+  const data = await resp.json()
+  if (data.code !== 0) {
+    throw new Error(data.message || '请求失败')
+  }
+  return data.data as T
+}
+
+// ===== 类型定义 =====
+
+export interface Tag {
+  id: string
+  name: string
+  category: string
+  parent_id: string | null
+  alias: string[]
+  status: string
+  sort_order: number
+  asset_count: number
+  children?: Tag[]
+}
+
+export interface Asset {
+  id: string
+  title: string
+  description: string
+  source_type: string
+  source_id: string
+  source_url: string
+  author_name: string
+  asset_type: 'image' | 'video'
+  obs_key: string
+  file_name: string
+  file_size: number
+  width: number
+  height: number
+  duration: number
+  phash: string
+  exif: Record<string, unknown> | null
+  starred: boolean
+  flag_level: number
+  quality_score: number
+  created_at: string
+  updated_at: string
+  tags: Tag[]
+  thumb_small: string
+  thumb_medium: string
+  thumb_raw: string
+}
+
+export interface AssetListResponse {
+  items: Asset[]
+  total: number
+  page: number
+  size: number
+}
+
+// ===== 素材 API =====
+
+export const assetApi = {
+  list: (params: Record<string, string | number | boolean | undefined>) => {
+    const qs = new URLSearchParams()
+    Object.entries(params).forEach(([k, v]) => {
+      if (v !== undefined && v !== '') qs.set(k, String(v))
+    })
+    return request<AssetListResponse>(`/assets?${qs.toString()}`)
+  },
+  detail: (id: string) => request<Asset>(`/assets/${id}`),
+  create: (data: Record<string, unknown>) =>
+    request<Asset>('/assets', { method: 'POST', body: JSON.stringify(data) }),
+  update: (id: string, data: Record<string, unknown>) =>
+    request<Asset>(`/assets/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+  remove: (id: string) => request(`/assets/${id}`, { method: 'DELETE' }),
+  addTags: (id: string, tagIds: string[]) =>
+    request(`/assets/${id}/tags`, { method: 'POST', body: JSON.stringify(tagIds) }),
+  removeTag: (id: string, tagId: string) =>
+    request(`/assets/${id}/tags/${tagId}`, { method: 'DELETE' }),
+  batchTag: (assetIds: string[], addTagIds: string[], removeTagIds: string[] = []) =>
+    request('/assets/batch-tag', {
+      method: 'POST',
+      body: JSON.stringify({ asset_ids: assetIds, add_tag_ids: addTagIds, remove_tag_ids: removeTagIds }),
+    }),
+}
+
+// ===== 标签 API =====
+
+export const tagApi = {
+  tree: (category?: string) => {
+    const qs = category ? `?category=${category}` : ''
+    return request<Record<string, Tag[]>>(`/tags/tree${qs}`)
+  },
+  search: (q: string, category?: string, limit = 10) => {
+    const params = new URLSearchParams({ q, limit: String(limit) })
+    if (category) params.set('category', category)
+    return request<Tag[]>(`/tags/search?${params.toString()}`)
+  },
+  create: (data: { name: string; category: string; parent_id?: string | null; alias?: string[] }) =>
+    request<Tag>('/tags', { method: 'POST', body: JSON.stringify(data) }),
+  update: (id: string, data: Record<string, unknown>) =>
+    request<Tag>(`/tags/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+  remove: (id: string) => request(`/tags/${id}`, { method: 'DELETE' }),
+  merge: (id: string, targetTagId: string) =>
+    request(`/tags/${id}/merge`, { method: 'POST', body: JSON.stringify({ target_tag_id: targetTagId }) }),
+}
