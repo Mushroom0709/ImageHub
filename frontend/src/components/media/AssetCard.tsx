@@ -131,11 +131,16 @@ export function AssetCard({ asset, onClick, selectMode, onDelete }: Props) {
         </span>
       )}
 
-      {/* Hover 操作区 */}
+      {/* Hover 遮罩层（视觉反馈，点击穿透） */}
       {showActions && !selectMode && (
-        <div className="absolute inset-0 bg-black/40 flex flex-col justify-between p-1.5" onClick={(e) => e.stopPropagation()}>
-          {/* 星级 */}
-          <div className="flex items-center gap-0.5 justify-center pt-1">
+        <div className="absolute inset-0 bg-black/40 pointer-events-none" />
+      )}
+
+      {/* Hover 操作层（仅按钮可交互，其余穿透到卡片） */}
+      {showActions && !selectMode && (
+        <div className="absolute inset-0 pointer-events-none flex flex-col justify-between p-1.5">
+          {/* 顶部：星级 */}
+          <div className="absolute top-0 left-0 right-0 p-1.5 flex items-center justify-center pt-1 bg-gradient-to-b from-black/50 to-transparent pointer-events-auto">
             {[1, 2, 3, 4, 5].map((lv) => (
               <button
                 key={lv}
@@ -150,8 +155,8 @@ export function AssetCard({ asset, onClick, selectMode, onDelete }: Props) {
             ))}
           </div>
 
-          {/* 底部：旗标 + 清除 + 删除 + 信息 */}
-          <div className="flex items-center justify-between">
+          {/* 底部：旗标 + 操作 */}
+          <div className="absolute bottom-0 left-0 right-0 p-1.5 flex items-center justify-between bg-gradient-to-t from-black/50 to-transparent pointer-events-auto">
             {/* 旗标 4 色 + 清除 */}
             <div className="flex gap-1 items-center">
               {FLAG_COLORS.map((f) => (
