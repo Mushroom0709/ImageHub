@@ -143,9 +143,9 @@ export function Lightbox({ asset, onClose, onChanged }: Props) {
             className="max-w-full max-h-full"
             poster={asset.thumb_medium}
           />
-        ) : asset.thumb_medium ? (
+        ) : asset.thumb_raw ? (
           <img
-            src={asset.thumb_medium}
+            src={asset.thumb_raw}
             alt={asset.title || asset.file_name}
             className={`max-w-full max-h-full object-contain transition-opacity duration-300 ${
               loaded ? 'opacity-100' : 'opacity-0'
