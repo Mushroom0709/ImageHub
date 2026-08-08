@@ -1,16 +1,19 @@
 """上传 API 端点"""
+import asyncio
 import os
 import uuid
 from datetime import datetime
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
+from sse_starlette.sse import EventSourceResponse
 
 from app.core.database import get_db
 from app.core.response import ok
 from app.models.upload import UploadLog
 from app.models.asset import Asset
 from app.services.obs_service import obs_service
+from app.services.progress_bus import progress_bus
 from app.schemas.asset import AssetCreate
 
 router = APIRouter(tags=["upload"])
@@ -56,13 +59,9 @@ def get_credentials(data: CredentialsRequest):
     today = datetime.utcnow().strftime("%Y/%m/%d")
 
     for i, file_info in enumerate(data.files):
-        # 生成 OBS key
         ext = file_info.file_name.rsplit(".", 1)[-1] if "." in file_info.file_name else "bin"
         sub_dir = "video" if file_info.asset_type == "video" else "image"
         obs_key = f"raw/{sub_dir}/{today}/{upload_id}_{i}.{ext}"
-        # 生成预签名 PUT URL
-        # 注意：OBS V2 签名会把 Content-Type 签进 canonical string（默认空字符串）
-        # 前端上传时不能带 Content-Type 头，否则签名校验失败（403）
         url = obs_service.generate_presigned_url(obs_key, method="PUT", expires=3600)
         credentials.append({
             "file_index": i,
@@ -77,11 +76,16 @@ def get_credentials(data: CredentialsRequest):
 
 
 @router.post("/complete")
-def complete_upload(data: CompleteRequest, db: Session = Depends(get_db)):
-    """上传完成回调"""
+async def complete_upload(
+    data: CompleteRequest,
+    db: Session = Depends(get_db),
+):
+    """上传完成回调（立即返回，后台异步处理）
+
+    用 asyncio.create_task 创建真正的协程（BackgroundTasks 不支持 async 函数）
+    """
     asset_ids = []
     for file_info in data.files:
-        # 登记上传日志
         upload_log = UploadLog(
             upload_id=data.upload_id,
             file_name=file_info.file_name,
@@ -92,14 +96,11 @@ def complete_upload(data: CompleteRequest, db: Session = Depends(get_db)):
         db.add(upload_log)
         db.flush()
 
-        # 判断素材类型
         ext = file_info.file_name.rsplit(".", 1)[-1].lower() if "." in file_info.file_name else ""
         video_exts = {"mp4", "mov", "avi", "mkv", "webm"}
         is_video = ext in video_exts
-        is_arw = ext in {"arw", "raw", "cr2", "nef", "dng"}
         asset_type = "video" if is_video else "image"
 
-        # 创建素材
         asset = Asset(
             title=file_info.file_name,
             file_name=file_info.file_name,
@@ -114,62 +115,151 @@ def complete_upload(data: CompleteRequest, db: Session = Depends(get_db)):
         )
         db.add(asset)
         db.flush()
-        asset_ids.append(str(asset.id))
-
-        if is_video:
-            # 视频处理：抽封面 + 取分辨率
-            try:
-                from app.services.video_service import video_service
-                w, h = video_service.process(file_info.obs_key)
-                asset.width = w
-                asset.height = h
-                upload_log.status = "done"
-            except Exception as e:
-                upload_log.status = "failed"
-                upload_log.error_message = f"视频处理失败: {e}"
-        else:
-            # 图片：生成缩略图
-            try:
-                from app.services.thumbnail_service import thumbnail_service
-                w, h = thumbnail_service.generate(file_info.obs_key)
-                asset.width = w
-                asset.height = h
-                upload_log.status = "done"
-            except Exception as e:
-                upload_log.status = "failed"
-                upload_log.error_message = str(e)
-
-            # ARW 特殊处理：预留（后续接入 dcraw 提取预览，需从 OBS 下载到本地）
-            # if is_arw:
-            #     _extract_arw_preview(file_info.obs_key, data.upload_id)
-
-            # EXIF 读取
-            try:
-                from app.services.exif_service import exif_service
-                exif_data = exif_service.read(file_info.obs_key)
-                if exif_data:
-                    asset.exif = exif_data
-                    # 自动打信息类标签（相机/镜头/焦段）
-                    _apply_info_tags(db, asset, exif_data)
-            except Exception as e:
-                print(f"[上传] EXIF 读取异常: {e}")
-
-            # AI 自动打标
-            try:
-                from app.services.ai_tagging_service import ai_tagging_service
-                image_url = obs_service.generate_presigned_url(file_info.obs_key, expires=3600)
-                tags = ai_tagging_service.tag_image(image_url, description=file_info.file_name)
-                if tags:
-                    ai_tagging_service.apply_tags(db, asset.id, tags)
-                    upload_log.error_message = f"AI打标 {len(tags)} 个标签"
-            except Exception as e:
-                print(f"[上传] AI 打标异常: {e}")
+        asset_id = str(asset.id)
+        asset_ids.append(asset_id)
 
         upload_log.asset_id = asset.id
-        upload_log.finished_at = datetime.utcnow()
+
+        # 用 asyncio.create_task 创建真正的协程
+        asyncio.create_task(
+            _process_asset_background(
+                asset_id,
+                data.upload_id,
+                file_info.obs_key,
+                file_info.file_name,
+                file_info.file_size,
+                is_video,
+                data.top_category_id,
+            )
+        )
 
     db.commit()
-    return ok({"asset_ids": asset_ids})
+    return ok({"asset_ids": asset_ids, "async_processing": True})
+
+
+async def _process_asset_background(
+    asset_id: str,
+    upload_id: str,
+    obs_key: str,
+    file_name: str,
+    file_size: int,
+    is_video: bool,
+    top_category_id: str | None,
+):
+    """后台异步处理：缩略图/EXIF/AI 打标/pHash，每阶段通过 progress_bus 推送"""
+    from app.core.database import SessionLocal
+
+    # 推送初始事件
+    await progress_bus.publish(asset_id, "uploaded", {"file_name": file_name, "file_size": file_size})
+
+    db = SessionLocal()
+    try:
+        asset = db.query(Asset).filter(Asset.id == asset_id).first()
+        if not asset:
+            await progress_bus.publish(asset_id, "failed", {"error": "asset not found"})
+            return
+        upload_log = db.query(UploadLog).filter(
+            UploadLog.upload_id == upload_id,
+            UploadLog.obs_key == obs_key,
+        ).first()
+
+        if is_video:
+            # 视频：抽封面 + 取分辨率
+            try:
+                from app.services.video_service import video_service
+                await progress_bus.publish(asset_id, "thumbnail", {"status": "processing"})
+                w, h = video_service.process(obs_key)
+                asset.width = w
+                asset.height = h
+                await progress_bus.publish(asset_id, "thumbnail", {"status": "done", "width": w, "height": h})
+                if upload_log:
+                    upload_log.status = "done"
+            except Exception as e:
+                await progress_bus.publish(asset_id, "thumbnail", {"status": "failed", "error": str(e)})
+                if upload_log:
+                    upload_log.status = "failed"
+                    upload_log.error_message = f"视频处理失败: {e}"
+        else:
+            # 图片：缩略图
+            try:
+                from app.services.thumbnail_service import thumbnail_service
+                await progress_bus.publish(asset_id, "thumbnail", {"status": "processing"})
+                w, h = thumbnail_service.generate(obs_key)
+                asset.width = w
+                asset.height = h
+                await progress_bus.publish(asset_id, "thumbnail", {"status": "done", "width": w, "height": h})
+            except Exception as e:
+                await progress_bus.publish(asset_id, "thumbnail", {"status": "failed", "error": str(e)})
+                # 缩略图失败不阻止后续步骤
+
+            # EXIF
+            try:
+                from app.services.exif_service import exif_service
+                await progress_bus.publish(asset_id, "exif", {"status": "processing"})
+                exif_data = exif_service.read(obs_key)
+                if exif_data:
+                    asset.exif = exif_data
+                    _apply_info_tags(db, asset, exif_data)
+                await progress_bus.publish(asset_id, "exif", {"status": "done", "has_exif": bool(exif_data)})
+            except Exception as e:
+                await progress_bus.publish(asset_id, "exif", {"status": "failed", "error": str(e)})
+
+            # AI 打标
+            try:
+                from app.services.ai_tagging_service import ai_tagging_service
+                await progress_bus.publish(asset_id, "ai_tagging", {"status": "processing"})
+                image_url = obs_service.generate_presigned_url(obs_key, expires=3600)
+                tags = ai_tagging_service.tag_image(image_url, description=file_name)
+                tag_count = 0
+                if tags:
+                    ai_tagging_service.apply_tags(db, asset.id, tags)
+                    tag_count = len(tags)
+                await progress_bus.publish(asset_id, "ai_tagging", {"status": "done", "tag_count": tag_count})
+                if upload_log and tag_count > 0:
+                    upload_log.error_message = f"AI打标 {tag_count} 个标签"
+            except Exception as e:
+                await progress_bus.publish(asset_id, "ai_tagging", {"status": "failed", "error": str(e)})
+
+        db.commit()
+        await progress_bus.publish(asset_id, "done", {})
+    except Exception as e:
+        db.rollback()
+        await progress_bus.publish(asset_id, "failed", {"error": str(e)})
+    finally:
+        db.close()
+
+
+@router.get("/events/{asset_id}")
+async def upload_events(asset_id: str, request: Request):
+    """SSE 端点：订阅单个 asset 的处理进度事件
+
+    客户端断开时（request.is_disconnected）自动退订
+    """
+    queue = await progress_bus.subscribe(asset_id)
+
+    async def event_generator():
+        try:
+            # 推送订阅成功标记（前端可用来确认连接）
+            yield {"event": "connected", "data": f'{{"asset_id": "{asset_id}"}}'}
+            while True:
+                if await request.is_disconnected():
+                    break
+                try:
+                    event = await asyncio.wait_for(queue.get(), timeout=15.0)
+                except asyncio.TimeoutError:
+                    # 15s 无事件 → 发心跳保活（SSE 允许注释行）
+                    yield {"event": "ping", "data": "{}"}
+                    continue
+                yield {
+                    "event": event["stage"],
+                    "data": f'{event["stage"]}|{event["ts"]}|{event.get("payload", {})}',
+                }
+                if event["stage"] in ("done", "failed"):
+                    break
+        finally:
+            await progress_bus.unsubscribe(asset_id, queue)
+
+    return EventSourceResponse(event_generator())
 
 
 @router.post("/from-url")
@@ -179,12 +269,10 @@ def upload_from_url(data: FromUrlRequest, db: Session = Depends(get_db)):
     task_id = str(uuid.uuid4())[:8]
     today = datetime.utcnow().strftime("%Y/%m/%d")
 
-    # 解析文件名
     file_name = data.url.split("/")[-1].split("?")[0] or "download.jpg"
     ext = file_name.rsplit(".", 1)[-1] if "." in file_name else "jpg"
     obs_key = f"raw/image/{today}/{task_id}.{ext}"
 
-    # 下载到临时文件
     from app.core.config import settings
     try:
         with httpx.Client(timeout=60, follow_redirects=True) as client:
@@ -196,17 +284,15 @@ def upload_from_url(data: FromUrlRequest, db: Session = Depends(get_db)):
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"下载失败: {str(e)}")
 
-    # 上传到 OBS
     ok_flag = obs_service.upload_file(obs_key, tmp_path)
     if not ok_flag:
-        raise HTTPException(status_code=500, detail="上传 OBS 失败")
+        raise HTTPException(status_code=500, detail="OBS 上传失败")
 
-    # 登记素材
     asset = Asset(
         title=file_name,
         file_name=file_name,
         file_size=len(open(tmp_path, "rb").read()),
-        source_type="upload",
+        source_type="url",
         asset_type="image",
         obs_bucket=obs_service.bucket,
         obs_key=obs_key,
@@ -224,17 +310,14 @@ def _apply_info_tags(db: Session, asset: Asset, exif: dict):
 
     info_tags = []
 
-    # 相机型号
     camera = (exif.get("camera") or "").strip()
     if camera:
         info_tags.append(("相机:" + camera, "info"))
 
-    # 镜头型号
     lens = (exif.get("lens") or "").strip()
     if lens:
         info_tags.append(("镜头:" + lens, "info"))
 
-    # 拍摄时间（年份/月份）
     capture_time = exif.get("capture_time") or ""
     if len(capture_time) >= 7:
         year = capture_time[:4]
@@ -244,7 +327,6 @@ def _apply_info_tags(db: Session, asset: Asset, exif: dict):
         if month[:4].isdigit() and month[5:7].isdigit():
             info_tags.append((f"月份:{month}", "info"))
 
-    # 焦段
     focal = (exif.get("focal_length") or "").strip()
     if focal:
         try:
@@ -265,7 +347,6 @@ def _apply_info_tags(db: Session, asset: Asset, exif: dict):
         if not tag:
             from sqlalchemy.exc import IntegrityError
             import time
-            # 重试 3 次（并发场景下其他事务可能尚未 commit）
             for attempt in range(3):
                 try:
                     tag = Tag(name=name, category=category, status="pending")

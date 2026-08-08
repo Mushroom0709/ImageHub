@@ -1,10 +1,14 @@
 """FastAPI 应用入口"""
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from PIL import Image
 
 from app.core.config import settings
 from app.core.response import ok
 from app.api import api_router
+
+# 提升 PIL DecompressionBomb 阈值（必须在 main 启动时执行，否则 lazy import 后才生效太晚）
+Image.MAX_IMAGE_PIXELS = 200_000_000
 
 app = FastAPI(title=settings.APP_NAME, version="0.1.0")
 
