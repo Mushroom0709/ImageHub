@@ -105,6 +105,7 @@ Body: {
   obsKey: string,           // OBS 原始文件路径
   fileName, fileSize,
   width, height, duration?,
+  topCategoryId?: string,   // 归属项目 ID
   autoTag: boolean,                   // 是否启用 AI 自动打标
   contentText?: string,              // AI 打标参考文本（标题+文案+话题）
   tags?: [{ tagName, confidence, source }],  // 直接传入的标签
@@ -146,6 +147,17 @@ Return: { ok: true, count: number }
 Query: size: small (300px) / medium (1200px) / raw (原图)
 Return: 302 Redirect to OBS signed URL
 ```
+
+### GET /assets/:id/stream
+流式获取原图/原视频（后端代理，支持 Range 206）
+```
+Header: Range: bytes=start-end  (可选，如 Range: bytes=0-1048575)
+Return: 二进制流 (image/* 或 video/mp4)
+        支持 Range: 206 Partial Content + Content-Range
+        Accept-Ranges: bytes
+```
+> 用途：Lightbox 视频流式播放、跨域场景下的大图加载。
+> 同源请求，无 CORS 问题；视频可边下边播。
 
 ### GET /assets/:id/similar
 相似素材（按 pHash）
@@ -255,7 +267,8 @@ Return: { ok: true, affectedCount: number }
 申请上传凭证（批量预签名 URL）
 ```
 Body: {
-  files: [{ fileName, fileSize, contentType }]
+  files: [{ fileName, fileSize, contentType, assetType: 'image' | 'video' }],
+  topCategoryId?: string,   // 归属项目 ID
 }
 Return: {
   uploadId: string,
@@ -263,19 +276,22 @@ Return: {
   // 前端用 uploadUrl 直传 OBS，obsKey 是完成回调时用的标识
 }
 ```
+> 上传时不要设置 Content-Type 请求头（OBS V2 签名签空字符串，带了会 403）。
 
 ### POST /upload/complete
 上传完成回调
 ```
 Body: {
   uploadId: string,
+  topCategoryId?: string,   // 归属项目 ID
   files: [{ fileIndex, obsKey, fileName, fileSize, width?, height? }]
 }
 Return: {
   assetIds: string[],   // 已创建的素材 ID（按 fileIndex 顺序）
 }
 ```
-> 触发后续异步处理：缩略图生成 + EXIF 读取 + pHash + AI 打标（如果 autoTag=true）
+> 触发后续处理：缩略图生成 + EXIF 读取 + AI 打标
+> 视频会抽封面帧 + 取分辨率
 
 ### POST /upload/from-url
 从 URL 下载上传
