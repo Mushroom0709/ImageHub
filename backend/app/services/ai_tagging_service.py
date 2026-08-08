@@ -98,7 +98,10 @@ class AiTaggingService:
         - 已有标签（匹配名称或别名）→ 复用
         - 新标签 → 创建（pending 状态）
         - confidence < 0.7 → 素材标记待审核（通过 tag status 体现）
+        - 并发冲突（唯一约束）→ 重新查询已有标签，保证幂等
         """
+        from sqlalchemy.exc import IntegrityError
+
         count = 0
         for tag_data in tags:
             name = tag_data.get("name", "").strip()
@@ -108,10 +111,47 @@ class AiTaggingService:
             if not name:
                 continue
 
-            # 找已有标签（按名称，不分大小写）
-            tag = db.query(Tag).filter(Tag.name == name).first()
+            tag = self._get_or_create_tag(db, name, category)
             if not tag:
-                # 创建新标签（pending 状态，需要审核）
+                continue
+
+            # 关联（幂等）
+            try:
+                existing = db.query(AssetTag).filter(
+                    AssetTag.asset_id == asset_id,
+                    AssetTag.tag_id == tag.id,
+                ).first()
+                if not existing:
+                    db.add(AssetTag(
+                        asset_id=asset_id,
+                        tag_id=tag.id,
+                        confidence=confidence,
+                        source="ai",
+                    ))
+                    db.flush()
+                count += 1
+            except IntegrityError:
+                # 并发冲突：已经关联过了
+                db.rollback()
+                continue
+
+        db.commit()
+        return count
+
+    def _get_or_create_tag(self, db: Session, name: str, category: str):
+        """获取或创建标签，处理并发唯一约束冲突（带重试）"""
+        from sqlalchemy.exc import IntegrityError
+        import time
+
+        # 最多重试 3 次（应对并发场景下其他事务尚未 commit 的情况）
+        for attempt in range(3):
+            # 先查
+            tag = db.query(Tag).filter(Tag.name == name).first()
+            if tag:
+                return tag
+
+            # 没有就创建
+            try:
                 tag = Tag(
                     name=name,
                     category=category,
@@ -119,23 +159,16 @@ class AiTaggingService:
                 )
                 db.add(tag)
                 db.flush()
-
-            # 关联（幂等）
-            existing = db.query(AssetTag).filter(
-                AssetTag.asset_id == asset_id,
-                AssetTag.tag_id == tag.id,
-            ).first()
-            if not existing:
-                db.add(AssetTag(
-                    asset_id=asset_id,
-                    tag_id=tag.id,
-                    confidence=confidence,
-                    source="ai",
-                ))
-                count += 1
-
-        db.commit()
-        return count
+                return tag
+            except IntegrityError:
+                # 并发冲突：另一个请求刚创建了同名标签
+                db.rollback()
+                # 等一小下再查（等其他事务提交）
+                if attempt < 2:
+                    time.sleep(0.05 * (attempt + 1))
+                    continue
+                # 最后一次重试：只查询，不再创建
+                return db.query(Tag).filter(Tag.name == name).first()
 
 
 ai_tagging_service = AiTaggingService()

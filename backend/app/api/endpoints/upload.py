@@ -261,12 +261,32 @@ def _apply_info_tags(db: Session, asset: Asset, exif: dict):
     for name, category in info_tags:
         tag = db.query(Tag).filter(Tag.name == name).first()
         if not tag:
-            tag = Tag(name=name, category=category, status="pending")
-            db.add(tag)
-            db.flush()
+            from sqlalchemy.exc import IntegrityError
+            import time
+            # 重试 3 次（并发场景下其他事务可能尚未 commit）
+            for attempt in range(3):
+                try:
+                    tag = Tag(name=name, category=category, status="pending")
+                    db.add(tag)
+                    db.flush()
+                    break
+                except IntegrityError:
+                    db.rollback()
+                    tag = db.query(Tag).filter(Tag.name == name).first()
+                    if tag:
+                        break
+                    if attempt < 2:
+                        time.sleep(0.05 * (attempt + 1))
+            if not tag:
+                continue
         existing = db.query(AssetTag).filter(
             AssetTag.asset_id == asset.id,
             AssetTag.tag_id == tag.id,
         ).first()
         if not existing:
-            db.add(AssetTag(asset_id=asset.id, tag_id=tag.id, confidence=1.0, source="ai"))
+            from sqlalchemy.exc import IntegrityError as IE2
+            try:
+                db.add(AssetTag(asset_id=asset.id, tag_id=tag.id, confidence=1.0, source="ai"))
+                db.flush()
+            except IE2:
+                db.rollback()

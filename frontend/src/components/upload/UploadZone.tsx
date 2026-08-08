@@ -34,7 +34,7 @@ export const UploadZone = forwardRef<{ openFiles: () => void; openFolder: () => 
   function UploadZone({ onUploaded }, ref) {
     const [dragging, setDragging] = useState(false)
     const [items, setItems] = useState<UploadItem[]>([])
-    const [showPanel, setShowPanel] = useState(false)
+    const [panelCollapsed, setPanelCollapsed] = useState(false)
     const [uploading, setUploading] = useState(false)
     const fileInputRef = useRef<HTMLInputElement>(null)
     const folderInputRef = useRef<HTMLInputElement>(null)
@@ -62,7 +62,7 @@ export const UploadZone = forwardRef<{ openFiles: () => void; openFolder: () => 
           status: 'waiting',
         }))
         setItems(newItems)
-        setShowPanel(true)
+        setPanelCollapsed(false)
         setUploading(true)
 
         try {
@@ -165,7 +165,7 @@ export const UploadZone = forwardRef<{ openFiles: () => void; openFolder: () => 
         )}
 
         {/* 上传进度面板 */}
-        {showPanel && items.length > 0 && (
+        {items.length > 0 && !panelCollapsed && (
           <div className="fixed bottom-4 right-4 w-96 bg-white dark:bg-zinc-900 rounded-xl shadow-2xl border border-zinc-200 dark:border-zinc-800 z-30 overflow-hidden">
             <div className="px-4 py-3 border-b border-zinc-200 dark:border-zinc-800 flex items-center justify-between">
               <div>
@@ -185,10 +185,11 @@ export const UploadZone = forwardRef<{ openFiles: () => void; openFolder: () => 
                   <span className="text-xs text-red-500">{failCount} 失败</span>
                 )}
                 <button
-                  onClick={() => setShowPanel(false)}
-                  className="text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300 text-sm"
+                  onClick={() => setPanelCollapsed(true)}
+                  className="text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300 text-sm w-5 h-5 flex items-center justify-center rounded hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                  title="最小化"
                 >
-                  ✕
+                  —
                 </button>
               </div>
             </div>
@@ -253,6 +254,61 @@ export const UploadZone = forwardRef<{ openFiles: () => void; openFolder: () => 
               ))}
             </div>
           </div>
+        )}
+
+        {/* 折叠状态：右下角小圆按钮 */}
+        {items.length > 0 && panelCollapsed && (
+          <button
+            onClick={() => setPanelCollapsed(false)}
+            className="fixed bottom-4 right-4 w-12 h-12 rounded-full bg-teal-600 hover:bg-teal-700 text-white shadow-lg z-30 flex items-center justify-center transition-transform hover:scale-105"
+            title={`上传进度 (${doneCount}/${items.length})`}
+          >
+            {uploading ? (
+              // 上传中：环形进度
+              <div className="relative w-8 h-8">
+                <svg className="w-8 h-8 -rotate-90" viewBox="0 0 32 32">
+                  <circle
+                    cx="16"
+                    cy="16"
+                    r="14"
+                    fill="none"
+                    stroke="rgba(255,255,255,0.25)"
+                    strokeWidth="3"
+                  />
+                  <circle
+                    cx="16"
+                    cy="16"
+                    r="14"
+                    fill="none"
+                    stroke="white"
+                    strokeWidth="3"
+                    strokeLinecap="round"
+                    strokeDasharray={`${totalPercent * 0.88} 88`}
+                    className="transition-all duration-300"
+                  />
+                </svg>
+                <span className="absolute inset-0 flex items-center justify-center text-xs font-medium">
+                  {totalPercent}%
+                </span>
+              </div>
+            ) : (
+              <div className="relative">
+                <span className="text-lg">📥</span>
+                {/* 角标：完成数 */}
+                {doneCount > 0 && (
+                  <span className="absolute -top-1 -right-2 w-4 h-4 bg-green-500 text-white text-[10px] rounded-full flex items-center justify-center font-medium">
+                    {doneCount > 9 ? '9+' : doneCount}
+                  </span>
+                )}
+                {/* 角标：失败数 */}
+                {failCount > 0 && (
+                  <span className="absolute -bottom-1 -right-2 w-4 h-4 bg-red-500 text-white text-[10px] rounded-full flex items-center justify-center font-medium">
+                    {failCount > 9 ? '!' : failCount}
+                  </span>
+                )}
+              </div>
+            )}
+          </button>
         )}
 
         {/* 文件选择 input */}
