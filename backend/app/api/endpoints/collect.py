@@ -140,7 +140,7 @@ def collect_douyin(data: CollectRequest, db: Session = Depends(get_db)):
             return ok({"task_id": str(task.id), "status": "failed", "message": task.error_message})
 
         # 下载视频
-        local_path = tikhub_service.download_file(video["video_url"])
+        local_path = tikhub_service.download_file(video["video_url"], default_ext="mp4")
         if not local_path:
             task.status = "failed"
             task.error_message = "视频下载失败"

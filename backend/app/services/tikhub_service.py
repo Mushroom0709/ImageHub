@@ -143,17 +143,40 @@ class TikHubService:
             "source_id": video.get("aweme_id", ""),
         }
 
-    def download_file(self, url: str) -> str | None:
-        """下载文件到临时目录，返回本地路径"""
+    def download_file(self, url: str, default_ext: str = "jpg") -> str | None:
+        """下载文件到临时目录，返回本地路径
+        default_ext: URL 无法推断时的默认扩展名
+        """
         try:
             with httpx.Client(timeout=60, follow_redirects=True) as client:
                 resp = client.get(url)
                 resp.raise_for_status()
-                # 从 URL 推断扩展名
-                ext = "jpg"
-                path_part = url.split("?")[0].split("/")[-1]
-                if "." in path_part:
-                    ext = path_part.rsplit(".", 1)[-1][:5]
+                # 1. 从 Content-Type 响应头推断（最准确）
+                ext = None
+                content_type = resp.headers.get("content-type", "").lower()
+                mime_to_ext = {
+                    "video/mp4": "mp4",
+                    "video/webm": "webm",
+                    "video/quicktime": "mov",
+                    "video/x-msvideo": "avi",
+                    "image/jpeg": "jpg",
+                    "image/jpg": "jpg",
+                    "image/png": "png",
+                    "image/webp": "webp",
+                    "image/gif": "gif",
+                }
+                for mime, mime_ext in mime_to_ext.items():
+                    if content_type.startswith(mime):
+                        ext = mime_ext
+                        break
+                # 2. 从 URL 推断
+                if not ext:
+                    path_part = url.split("?")[0].split("/")[-1]
+                    if "." in path_part:
+                        ext = path_part.rsplit(".", 1)[-1][:5].lower()
+                # 3. 默认值
+                if not ext:
+                    ext = default_ext
                 tmp = tempfile.NamedTemporaryFile(suffix=f".{ext}", delete=False)
                 tmp.write(resp.content)
                 tmp.close()

@@ -142,6 +142,9 @@ export function Lightbox({ asset, onClose, onChanged }: Props) {
             autoPlay
             className="max-w-full max-h-full"
             poster={asset.thumb_medium}
+            onError={(e) => {
+              e.currentTarget.parentElement?.querySelector('.video-error')?.classList.remove('hidden')
+            }}
           />
         ) : asset.thumb_raw ? (
           <img
