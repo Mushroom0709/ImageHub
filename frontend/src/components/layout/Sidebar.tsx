@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useUIStore, useFilterStore } from '../../stores/uiStore'
 import { TagTree } from '../tags/TagTree'
+import { ProjectSection } from './ProjectSection'
 
 const CATEGORIES = [
   { key: '', label: '全部' },
@@ -53,6 +54,9 @@ export function Sidebar() {
 
   return (
     <aside className="w-64 shrink-0 border-r border-zinc-200 dark:border-zinc-800 flex flex-col bg-zinc-50 dark:bg-zinc-900">
+      {/* 项目（顶层分类） */}
+      <ProjectSection />
+
       {/* 分类 Tab */}
       <div className="flex flex-wrap gap-1 p-3 border-b border-zinc-200 dark:border-zinc-800">
         {CATEGORIES.map((c) => (

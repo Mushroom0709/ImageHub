@@ -42,6 +42,9 @@ class Asset(Base):
     flag_level = Column(Integer, default=0)  # 0无/1红/2橙/3黄/4绿/5蓝
     uploader_id = Column(UUID(as_uuid=True), nullable=True)
 
+    # 顶层分类（项目）归属
+    top_category_id = Column(UUID(as_uuid=True), nullable=True, index=True)
+
     # 时间
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

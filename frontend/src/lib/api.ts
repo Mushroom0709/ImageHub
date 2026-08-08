@@ -108,6 +108,25 @@ export const assetApi = {
     }),
 }
 
+// ===== 顶层分类（项目）API =====
+
+export interface TopCategory {
+  id: string
+  name: string
+  description: string
+  asset_count: number
+  created_at: string
+}
+
+export const topCategoryApi = {
+  list: () => request<TopCategory[]>('/top-categories'),
+  create: (data: { name: string; description?: string }) =>
+    request<TopCategory>('/top-categories', { method: 'POST', body: JSON.stringify(data) }),
+  update: (id: string, data: Record<string, unknown>) =>
+    request<TopCategory>(`/top-categories/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+  remove: (id: string) => request(`/top-categories/${id}`, { method: 'DELETE' }),
+}
+
 // ===== 标签 API =====
 
 export const tagApi = {

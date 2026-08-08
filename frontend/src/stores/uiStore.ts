@@ -30,10 +30,12 @@ interface FilterState {
   starred: boolean | null
   flagLevel: number | null
   trashed: boolean
+  topCategoryId: string | null
   toggleTag: (id: string) => void
   clearTags: () => void
   setKeyword: (k: string) => void
   setSort: (s: SortOption) => void
+  setTopCategory: (id: string | null) => void
   reset: () => void
 }
 
@@ -45,6 +47,7 @@ export const useFilterStore = create<FilterState>((set) => ({
   starred: null,
   flagLevel: null,
   trashed: false,
+  topCategoryId: null,
   toggleTag: (id) =>
     set((s) => ({
       selectedTagIds: s.selectedTagIds.includes(id)
@@ -54,7 +57,8 @@ export const useFilterStore = create<FilterState>((set) => ({
   clearTags: () => set({ selectedTagIds: [] }),
   setKeyword: (k) => set({ keyword: k }),
   setSort: (s) => set({ sort: s }),
-  reset: () => set({ selectedTagIds: [], keyword: '', sort: 'newest', sourceType: null, starred: null, flagLevel: null, trashed: false }),
+  setTopCategory: (id) => set({ topCategoryId: id }),
+  reset: () => set({ selectedTagIds: [], keyword: '', sort: 'newest', sourceType: null, starred: null, flagLevel: null, trashed: false, topCategoryId: null }),
 }))
 
 // ===== 多选状态 =====

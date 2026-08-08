@@ -37,6 +37,7 @@ class AssetCreate(AssetBase):
     auto_tag: bool = True
     content_text: str = ""
     tags: list[dict] = Field(default_factory=list)  # [{tagName, confidence, source}]
+    top_category_id: UUID | None = None
 
 
 class AssetUpdate(BaseModel):
@@ -44,12 +45,14 @@ class AssetUpdate(BaseModel):
     description: Optional[str] = None
     starred: Optional[bool] = None
     flag_level: Optional[int] = None
+    top_category_id: Optional[UUID] = None
 
 
 class Asset(AssetBase):
     id: UUID
     phash: str = ""
     quality_score: float = 0
+    top_category_id: UUID | None = None
     created_at: datetime
     updated_at: datetime
     tags: list[TagBrief] = Field(default_factory=list)

@@ -23,6 +23,7 @@ def list_assets(
     starred: bool | None = None,
     flag_level: int | None = Query(None, ge=0, le=5),
     trashed: bool = False,
+    top_category_id: uuid.UUID | None = Query(None, description="顶层分类（项目）ID"),
     db: Session = Depends(get_db),
 ):
     """素材列表"""
@@ -39,6 +40,7 @@ def list_assets(
         tag_ids=tag_id_list if tag_id_list else None,
         keyword=keyword, source_type=source_type,
         starred=starred, flag_level=flag_level, trashed=trashed,
+        top_category_id=top_category_id,
     )
     return ok({
         "items": items,

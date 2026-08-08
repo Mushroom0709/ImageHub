@@ -35,6 +35,7 @@ export function MasonryGrid({ refreshKey = 0 }: Props) {
         starred: filter.starred === null ? '' : String(filter.starred),
         flag_level: filter.flagLevel || '',
         trashed: filter.trashed ? 'true' : '',
+        top_category_id: filter.topCategoryId || '',
       })
       setTotal(data.total)
       setAssets((prev) => (append ? [...prev, ...data.items] : data.items))
@@ -44,7 +45,7 @@ export function MasonryGrid({ refreshKey = 0 }: Props) {
       setLoading(false)
       setInitialLoading(false)
     }
-  }, [filter.sort, filter.selectedTagIds, filter.keyword, filter.sourceType, filter.starred, filter.flagLevel, filter.trashed])
+  }, [filter.sort, filter.selectedTagIds, filter.keyword, filter.sourceType, filter.starred, filter.flagLevel, filter.trashed, filter.topCategoryId])
 
   // 筛选条件变化时重新加载
   useEffect(() => {
@@ -52,7 +53,7 @@ export function MasonryGrid({ refreshKey = 0 }: Props) {
     setAssets([])
     setInitialLoading(true)
     loadPage(1, false)
-  }, [filter.selectedTagIds, filter.keyword, filter.sort, filter.sourceType, filter.starred, filter.flagLevel, filter.trashed, refreshKey, loadPage])
+  }, [filter.selectedTagIds, filter.keyword, filter.sort, filter.sourceType, filter.starred, filter.flagLevel, filter.trashed, filter.topCategoryId, refreshKey, loadPage])
 
   // 无限滚动
   useEffect(() => {

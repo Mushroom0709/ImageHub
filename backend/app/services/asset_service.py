@@ -36,6 +36,7 @@ class AssetService:
         starred: bool | None = None,
         flag_level: int | None = None,
         trashed: bool = False,
+        top_category_id: uuid.UUID | None = None,
     ) -> tuple[list[Asset], int]:
         """素材列表（分页+筛选）"""
         query = self.db.query(Asset)
@@ -45,6 +46,10 @@ class AssetService:
             query = query.filter(Asset.deleted_at.isnot(None))
         else:
             query = query.filter(Asset.deleted_at.is_(None))
+
+        # 顶层分类（项目）筛选
+        if top_category_id:
+            query = query.filter(Asset.top_category_id == top_category_id)
 
         # 标签筛选（交集）
         if tag_ids:
@@ -116,6 +121,7 @@ class AssetService:
             duration=data.duration,
             starred=data.starred,
             flag_level=data.flag_level,
+            top_category_id=data.top_category_id,
         )
         self.db.add(asset)
         self.db.flush()
