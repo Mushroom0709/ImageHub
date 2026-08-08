@@ -1,6 +1,6 @@
 """素材 API 端点"""
 import uuid
-from fastapi import APIRouter, Depends, Query, HTTPException
+from fastapi import APIRouter, Depends, Query, HTTPException, Request
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
@@ -131,6 +131,55 @@ def get_thumb(asset_id: uuid.UUID, size: str = Query("medium", pattern="^(small|
 
     url = obs_service.generate_presigned_url(obs_key, expires=3600)
     return RedirectResponse(url=url)
+
+
+@router.get("/{asset_id}/stream")
+def stream_asset(
+    asset_id: uuid.UUID,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    """流式返回素材原图/原视频（支持 Range 206 分片，解决跨域视频播放问题）"""
+    import httpx
+    from fastapi.responses import StreamingResponse
+    from app.services.obs_service import obs_service
+
+    svc = AssetService(db)
+    asset = svc.get_asset(asset_id)
+    if not asset or not asset.obs_key:
+        raise HTTPException(status_code=404, detail="素材不存在")
+
+    presigned_url = obs_service.generate_presigned_url(asset.obs_key, expires=3600)
+
+    # 透传 Range header（浏览器视频流式播放必需）
+    headers = {}
+    range_header = request.headers.get("range")
+    if range_header:
+        headers["Range"] = range_header
+
+    client = httpx.Client(timeout=60)
+    req = client.build_request("GET", presigned_url, headers=headers)
+    resp = client.send(req, stream=True)
+
+    response_headers = {}
+    for h in ["content-type", "content-length", "content-range", "accept-ranges", "etag", "last-modified", "cache-control"]:
+        v = resp.headers.get(h)
+        if v:
+            response_headers[h] = v
+
+    def iter_content():
+        try:
+            for chunk in resp.iter_bytes(chunk_size=1024 * 256):
+                yield chunk
+        finally:
+            resp.close()
+            client.close()
+
+    return StreamingResponse(
+        iter_content(),
+        status_code=resp.status_code,
+        headers=response_headers,
+    )
 
 
 @router.get("/{asset_id}/similar")

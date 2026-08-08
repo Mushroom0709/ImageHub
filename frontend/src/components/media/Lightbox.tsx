@@ -137,9 +137,8 @@ export function Lightbox({ asset, onClose, onChanged }: Props) {
       >
         {asset.asset_type === 'video' ? (
           <video
-            src={asset.thumb_raw || ''}
+            src={`/api/assets/${asset.id}/stream`}
             controls
-            autoPlay
             className="max-w-full max-h-full"
             poster={asset.thumb_medium}
             onError={(e) => {
