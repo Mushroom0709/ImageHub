@@ -6,7 +6,7 @@
  */
 
 const THRESHOLD = 100 * 1024 * 1024 // 超过 100MB 走分片（与后端 UPLOAD_MULTIPART_THRESHOLD 一致）
-const PART_CONCURRENCY = 3
+const PART_CONCURRENCY = 5 // 分片并发数（内网 OBS 带宽充足，5 并发实测无压力）
 
 /** 分片上传会话状态（从 /status 恢复） */
 interface MultipartSession {

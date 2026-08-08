@@ -188,6 +188,8 @@ export async function uploadFiles(
           if (assetId) {
             assetIds.push(assetId)
             onFileStatus?.(i, 'processing', assetId)
+          } else {
+            onFileStatus?.(i, 'failed')
           }
         } else {
           // 小文件：直传 OBS
@@ -221,7 +223,9 @@ export async function uploadFiles(
           assetIds.push(...ids)
           onFileStatus?.(i, 'processing', ids[0])
         }
-        onFileStatus?.(i, 'done')
+        // 注意：不在此处标记 done！
+        // item 保持 processing 状态，由 SSE 'done' 事件最终标记完成。
+        // 这样 SSE 订阅 useEffect 能看到 status=processing 并订阅。
       } catch (err) {
         onFileProgress?.(i, -1)
         onFileStatus?.(i, 'failed')

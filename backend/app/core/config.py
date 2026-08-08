@@ -36,6 +36,8 @@ class Settings(BaseSettings):
     AI_TAG_REVIEW_THRESHOLD: float = 0.6
     # 待审核标签被使用的次数达到该值 → 自动转 active（高频词信任机制）
     TAG_AUTO_APPROVE_MIN_USE: int = 3
+    # AI 打标最大并发数（防止打爆 Qwen 服务）
+    AI_TAG_CONCURRENCY: int = 3
 
     # TikHub
     TIKHUB_TOKEN: str = ""

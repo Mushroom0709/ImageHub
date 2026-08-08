@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from sse_starlette.sse import EventSourceResponse
 
 from app.core.database import get_db
+from app.core.config import settings
 from app.core.response import ok
 from app.models.upload import UploadLog
 from app.models.asset import Asset
@@ -17,6 +18,9 @@ from app.services.progress_bus import progress_bus
 from app.schemas.asset import AssetCreate
 
 router = APIRouter(tags=["upload"])
+
+# AI 打标全局限流信号量（防止并发打爆 Qwen 服务）
+_ai_tag_semaphore = asyncio.Semaphore(settings.AI_TAG_CONCURRENCY)
 
 
 class UploadFileInfo(BaseModel):
@@ -164,14 +168,18 @@ async def _process_asset_background(
         ).first()
 
         if is_video:
-            # 视频：抽封面 + 取分辨率
+            # 视频：抽封面 + 取分辨率（阻塞调用 → 线程池，避免卡事件循环）
             try:
                 from app.services.video_service import video_service
                 await progress_bus.publish(asset_id, "thumbnail", {"status": "processing"})
-                w, h = video_service.process(obs_key)
-                asset.width = w
-                asset.height = h
-                await progress_bus.publish(asset_id, "thumbnail", {"status": "done", "width": w, "height": h})
+                result = await asyncio.to_thread(video_service.process, obs_key)
+                if result:
+                    w, h = result
+                    asset.width = w
+                    asset.height = h
+                    await progress_bus.publish(asset_id, "thumbnail", {"status": "done", "width": w, "height": h})
+                else:
+                    await progress_bus.publish(asset_id, "thumbnail", {"status": "failed", "error": "video_process_returned_none"})
                 if upload_log:
                     upload_log.status = "done"
             except Exception as e:
@@ -180,11 +188,11 @@ async def _process_asset_background(
                     upload_log.status = "failed"
                     upload_log.error_message = f"视频处理失败: {e}"
         else:
-            # 图片：缩略图
+            # 图片：缩略图（阻塞 PIL → 线程池）
             try:
                 from app.services.thumbnail_service import thumbnail_service
                 await progress_bus.publish(asset_id, "thumbnail", {"status": "processing"})
-                w, h = thumbnail_service.generate(obs_key)
+                w, h = await asyncio.to_thread(thumbnail_service.generate, obs_key)
                 asset.width = w
                 asset.height = h
                 await progress_bus.publish(asset_id, "thumbnail", {"status": "done", "width": w, "height": h})
@@ -192,11 +200,11 @@ async def _process_asset_background(
                 await progress_bus.publish(asset_id, "thumbnail", {"status": "failed", "error": str(e)})
                 # 缩略图失败不阻止后续步骤
 
-            # EXIF
+            # EXIF（阻塞下载+解析 → 线程池）
             try:
                 from app.services.exif_service import exif_service
                 await progress_bus.publish(asset_id, "exif", {"status": "processing"})
-                exif_data = exif_service.read(obs_key)
+                exif_data = await asyncio.to_thread(exif_service.read, obs_key)
                 if exif_data:
                     asset.exif = exif_data
                     _apply_info_tags(db, asset, exif_data)
@@ -204,12 +212,13 @@ async def _process_asset_background(
             except Exception as e:
                 await progress_bus.publish(asset_id, "exif", {"status": "failed", "error": str(e)})
 
-            # AI 打标
+            # AI 打标（同步 httpx → 线程池 + 全局限流）
             try:
                 from app.services.ai_tagging_service import ai_tagging_service
                 await progress_bus.publish(asset_id, "ai_tagging", {"status": "processing"})
                 image_url = obs_service.generate_presigned_url(obs_key, expires=3600)
-                tags = ai_tagging_service.tag_image(image_url, description=file_name)
+                async with _ai_tag_semaphore:
+                    tags = await asyncio.to_thread(ai_tagging_service.tag_image, image_url, file_name)
                 tag_count = 0
                 if tags:
                     ai_tagging_service.apply_tags(db, asset.id, tags)

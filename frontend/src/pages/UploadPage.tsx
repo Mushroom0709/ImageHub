@@ -3,6 +3,7 @@ import { useEffect } from 'react'
 import { TopBar } from '../components/layout/TopBar'
 import { useUploadStore, Stage } from '../stores/uploadStore'
 import { UploadItem } from '../stores/uploadStore'
+import { syncProgressWatches } from '../lib/uploadProgressWatcher'
 
 const VIDEO_EXTS = ['mp4', 'mov', 'avi', 'mkv', 'webm']
 const IMAGE_EXTS = ['jpg', 'jpeg', 'png', 'webp', 'gif', 'tiff', 'bmp', 'arw', 'raw', 'cr2', 'nef', 'dng']
@@ -202,6 +203,11 @@ export function UploadPage() {
   const clearFailed = useUploadStore((s) => s.clearFailed)
   const retryItem = useUploadStore((s) => s.retryItem)
   const removeItem = useUploadStore((s) => s.removeItem)
+
+  // SSE 阶段订阅同步：processing 状态的 item 确保有 EventSource（跨页面单例，幂等）
+  useEffect(() => {
+    syncProgressWatches()
+  }, [items])
 
   // 通过事件总线通知 UploadZone 触发 file picker（重试）
   // 这里用 custom event 解耦（UploadPage 不直接 import UploadZone）

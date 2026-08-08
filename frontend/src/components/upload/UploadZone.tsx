@@ -1,6 +1,7 @@
 import { forwardRef, useImperativeHandle, useRef, useState, useCallback, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { uploadFiles } from '../../lib/upload'
+import { syncProgressWatches } from '../../lib/uploadProgressWatcher'
 import { useUIStore } from '../../stores/uiStore'
 import { useUploadStore, newUploadItem } from '../../stores/uploadStore'
 
@@ -30,9 +31,6 @@ function formatSpeed(bytesPerSec: number): string {
   if (bytesPerSec < 1024 * 1024) return `${(bytesPerSec / 1024).toFixed(0)} KB/s`
   return `${(bytesPerSec / 1024 / 1024).toFixed(1)} MB/s`
 }
-
-// 模块级单例：跟踪正在订阅 SSE 的 assetId（避免 useEffect 重复订阅）
-const activeSSESubs = new Set<string>()
 
 /** 重试 item 的回调（用户从 file picker 选文件后调用） */
 interface RetryContext {
@@ -97,85 +95,17 @@ export const UploadZone = forwardRef<
       },
     }))
 
-    // 后端 SSE 阶段订阅：每个 uploading/processing 的 item 订阅一次
+    // 后端 SSE 阶段订阅：全局模块级单例（跨页面存活），这里只负责触发同步
     useEffect(() => {
-      const sources: EventSource[] = []
-      for (const item of items) {
-        const assetId = item.assetId
-        if (!assetId || item.status !== 'processing') continue
-        // 模块级单例去重（React strict mode 会双跑 effect + items 变化时重跑）
-        if (activeSSESubs.has(assetId)) continue
-        activeSSESubs.add(assetId)
+      syncProgressWatches()
+    }, [items])
 
-        const url = `/api/upload/events/${assetId}`
-        const es = new EventSource(url)
-        sources.push(es)
-
-        const handleEvent = (eventName: string, payloadStr: string) => {
-          // payload 格式: "{stage}|{ts}|{payload_dict}"
-          const parts = payloadStr.split('|')
-          let payload: Record<string, any> = {}
-          if (parts[2]) {
-            try {
-              payload = JSON.parse(parts[2].replace(/'/g, '"'))
-            } catch {
-              payload = {}
-            }
-          }
-
-          if (eventName === 'uploaded') {
-            updateStage(item.id, 'obs', { status: 'done', progress: 100 })
-            updateItem(item.id, { overallProgress: 60, status: 'processing' })
-          } else if (eventName === 'thumbnail') {
-            updateStage(item.id, 'thumbnail', {
-              status: payload.status === 'done' ? 'done' : payload.status === 'failed' ? 'failed' : 'processing',
-            })
-            if (payload.status === 'done') {
-              updateStage(item.id, 'thumbnail', { status: 'done', progress: 100, payload })
-              updateItem(item.id, { overallProgress: 80 })
-            }
-          } else if (eventName === 'exif') {
-            updateStage(item.id, 'exif', {
-              status: payload.status === 'done' ? 'done' : payload.status === 'failed' ? 'failed' : 'processing',
-              payload,
-            })
-            if (payload.status === 'done') {
-              updateStage(item.id, 'exif', { status: 'done', progress: 100 })
-              updateItem(item.id, { overallProgress: 88 })
-            }
-          } else if (eventName === 'ai_tagging') {
-            updateStage(item.id, 'ai_tagging', {
-              status: payload.status === 'done' ? 'done' : payload.status === 'failed' ? 'failed' : 'processing',
-              payload,
-            })
-            if (payload.status === 'done') {
-              updateStage(item.id, 'ai_tagging', { status: 'done', progress: 100 })
-              updateItem(item.id, { overallProgress: 95 })
-            }
-          } else if (eventName === 'done') {
-            // 后端全部处理完（即便 ai failed 也 done）
-            updateStage(item.id, 'phash', { status: 'pending' }) // pHash 未实装，保持 pending
-            updateItem(item.id, { status: 'done', overallProgress: 100 })
-            onUploaded()
-            activeSSESubs.delete(assetId)
-            es.close()
-          } else if (eventName === 'failed') {
-            updateItem(item.id, { status: 'failed', overallProgress: item.overallProgress, errorMessage: payload.error })
-            activeSSESubs.delete(assetId)
-            es.close()
-          }
-        }
-
-        es.addEventListener('connected', () => {})
-        es.addEventListener('uploaded', (e) => handleEvent('uploaded', (e as MessageEvent).data))
-        es.addEventListener('thumbnail', (e) => handleEvent('thumbnail', (e as MessageEvent).data))
-        es.addEventListener('exif', (e) => handleEvent('exif', (e as MessageEvent).data))
-        es.addEventListener('ai_tagging', (e) => handleEvent('ai_tagging', (e as MessageEvent).data))
-        es.addEventListener('done', (e) => handleEvent('done', (e as MessageEvent).data))
-        es.addEventListener('failed', (e) => handleEvent('failed', (e as MessageEvent).data))
-      }
-      return () => sources.forEach((s) => s.close())
-    }, [items, updateItem, updateStage, onUploaded])
+    // 监听处理完成事件 → 刷新首页瀑布流
+    useEffect(() => {
+      const handler = () => onUploaded()
+      window.addEventListener('imagehub-asset-done', handler)
+      return () => window.removeEventListener('imagehub-asset-done', handler)
+    }, [onUploaded])
 
     // 开始上传
     const startUpload = useCallback(
@@ -197,7 +127,7 @@ export const UploadZone = forwardRef<
           // 构造 server item 索引映射：files → item.id
           await uploadFiles(supported, {
             topCategoryId: currentTopCategoryId,
-            concurrency: 3,
+            concurrency: 6,
             onFileProgress: (i, p, extra) => {
               const itemId = newItems[i].id
               updateItem(itemId, {
