@@ -33,7 +33,7 @@ class AssetService:
         tag_ids: list[uuid.UUID] | None = None,
         keyword: str = "",
         source_type: str | None = None,
-        starred: bool | None = None,
+        star_level: int | None = None,
         flag_level: int | None = None,
         trashed: bool = False,
         top_category_id: uuid.UUID | None = None,
@@ -67,9 +67,9 @@ class AssetService:
         if source_type:
             query = query.filter(Asset.source_type == source_type)
 
-        # 星标过滤
-        if starred is not None:
-            query = query.filter(Asset.starred == starred)
+        # 星级筛选
+        if star_level is not None:
+            query = query.filter(Asset.star_level == star_level)
 
         # 旗标过滤
         if flag_level is not None:
@@ -119,7 +119,7 @@ class AssetService:
             width=data.width,
             height=data.height,
             duration=data.duration,
-            starred=data.starred,
+            star_level=data.star_level,
             flag_level=data.flag_level,
             top_category_id=data.top_category_id,
         )
@@ -170,7 +170,7 @@ class AssetService:
                 "file_name": asset.file_name,
                 "tags": [{"name": t.name} for t in asset.tags],
                 "source_type": asset.source_type,
-                "starred": asset.starred,
+                "star_level": asset.star_level,
                 "flag_level": asset.flag_level,
                 "asset_type": asset.asset_type,
             })

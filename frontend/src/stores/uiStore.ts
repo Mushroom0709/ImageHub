@@ -27,7 +27,7 @@ interface FilterState {
   keyword: string
   sort: SortOption
   sourceType: string | null
-  starred: boolean | null
+  starLevel: number | null
   flagLevel: number | null
   trashed: boolean
   topCategoryId: string | null
@@ -44,7 +44,7 @@ export const useFilterStore = create<FilterState>((set) => ({
   keyword: '',
   sort: 'newest',
   sourceType: null,
-  starred: null,
+  starLevel: null,
   flagLevel: null,
   trashed: false,
   topCategoryId: null,
@@ -58,7 +58,7 @@ export const useFilterStore = create<FilterState>((set) => ({
   setKeyword: (k) => set({ keyword: k }),
   setSort: (s) => set({ sort: s }),
   setTopCategory: (id) => set({ topCategoryId: id }),
-  reset: () => set({ selectedTagIds: [], keyword: '', sort: 'newest', sourceType: null, starred: null, flagLevel: null, trashed: false, topCategoryId: null }),
+  reset: () => set({ selectedTagIds: [], keyword: '', sort: 'newest', sourceType: null, starLevel: null, flagLevel: null, trashed: false, topCategoryId: null }),
 }))
 
 // ===== 多选状态 =====

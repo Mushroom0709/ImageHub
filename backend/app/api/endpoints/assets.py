@@ -20,7 +20,7 @@ def list_assets(
     tag_ids: str = Query("", description="逗号分隔的 tag ID 列表"),
     keyword: str = "",
     source_type: str | None = None,
-    starred: bool | None = None,
+    star_level: int | None = Query(None, ge=0, le=5, description="星级 0-5"),
     flag_level: int | None = Query(None, ge=0, le=5),
     trashed: bool = False,
     top_category_id: uuid.UUID | None = Query(None, description="顶层分类（项目）ID"),
@@ -39,7 +39,7 @@ def list_assets(
         page=page, size=size, sort=sort,
         tag_ids=tag_id_list if tag_id_list else None,
         keyword=keyword, source_type=source_type,
-        starred=starred, flag_level=flag_level, trashed=trashed,
+        star_level=star_level, flag_level=flag_level, trashed=trashed,
         top_category_id=top_category_id,
     )
     return ok({

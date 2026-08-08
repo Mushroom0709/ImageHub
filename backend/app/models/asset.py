@@ -38,7 +38,7 @@ class Asset(Base):
     quality_score = Column(Float, default=0)
 
     # 用户操作
-    starred = Column(Boolean, default=False)
+    star_level = Column(Integer, default=0)  # 0无星/1-5星级
     flag_level = Column(Integer, default=0)  # 0无/1红/2橙/3黄/4绿/5蓝
     uploader_id = Column(UUID(as_uuid=True), nullable=True)
 
@@ -54,7 +54,7 @@ class Asset(Base):
         Index("ix_assets_source", "source_type", "source_id"),
         Index("ix_assets_phash", "phash"),
         Index("ix_assets_created", "created_at"),
-        Index("ix_assets_starred", "starred"),
+        Index("ix_assets_star_level", "star_level"),
         Index("ix_assets_flag", "flag_level"),
         Index("ix_assets_deleted", "deleted_at"),
     )

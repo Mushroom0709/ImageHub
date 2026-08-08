@@ -29,7 +29,7 @@ class AssetBase(BaseModel):
     width: int = 0
     height: int = 0
     duration: float = 0
-    starred: bool = False
+    star_level: int = 0  # 0无星/1-5
     flag_level: int = 0
 
 
@@ -43,7 +43,7 @@ class AssetCreate(AssetBase):
 class AssetUpdate(BaseModel):
     title: Optional[str] = None
     description: Optional[str] = None
-    starred: Optional[bool] = None
+    star_level: Optional[int] = None
     flag_level: Optional[int] = None
     top_category_id: Optional[UUID] = None
 

@@ -32,7 +32,7 @@ export function MasonryGrid({ refreshKey = 0 }: Props) {
         tag_ids: filter.selectedTagIds.length > 0 ? filter.selectedTagIds.join(',') : '',
         keyword: filter.keyword,
         source_type: filter.sourceType || '',
-        starred: filter.starred === null ? '' : String(filter.starred),
+        star_level: filter.starLevel === null ? '' : String(filter.starLevel),
         flag_level: filter.flagLevel || '',
         trashed: filter.trashed ? 'true' : '',
         top_category_id: filter.topCategoryId || '',
@@ -45,7 +45,7 @@ export function MasonryGrid({ refreshKey = 0 }: Props) {
       setLoading(false)
       setInitialLoading(false)
     }
-  }, [filter.sort, filter.selectedTagIds, filter.keyword, filter.sourceType, filter.starred, filter.flagLevel, filter.trashed, filter.topCategoryId])
+  }, [filter.sort, filter.selectedTagIds, filter.keyword, filter.sourceType, filter.starLevel, filter.flagLevel, filter.trashed, filter.topCategoryId])
 
   // 筛选条件变化时重新加载
   useEffect(() => {
@@ -53,7 +53,7 @@ export function MasonryGrid({ refreshKey = 0 }: Props) {
     setAssets([])
     setInitialLoading(true)
     loadPage(1, false)
-  }, [filter.selectedTagIds, filter.keyword, filter.sort, filter.sourceType, filter.starred, filter.flagLevel, filter.trashed, filter.topCategoryId, refreshKey, loadPage])
+  }, [filter.selectedTagIds, filter.keyword, filter.sort, filter.sourceType, filter.starLevel, filter.flagLevel, filter.trashed, filter.topCategoryId, refreshKey, loadPage])
 
   // 无限滚动
   useEffect(() => {
@@ -106,7 +106,7 @@ export function MasonryGrid({ refreshKey = 0 }: Props) {
       const { selectedIds, clearSelection } = useSelectionStore.getState()
       const ids = Array.from(selectedIds)
       for (const id of ids) {
-        await assetApi.update(id, { starred: true })
+        await assetApi.update(id, { star_level: 3 })
       }
       clearSelection()
       loadPage(1, false)
@@ -139,6 +139,12 @@ export function MasonryGrid({ refreshKey = 0 }: Props) {
     )
   }
 
+  const handleSingleDelete = async (id: string) => {
+    if (!confirm('删除该素材？（移入回收站）')) return
+    await assetApi.remove(id)
+    loadPage(1, false)
+  }
+
   return (
     <div className="h-full overflow-y-auto pb-14 md:pb-0" data-testid="masonry-scroll">
       <div className="columns-2 md:columns-3 lg:columns-4 xl:columns-5 gap-3 p-4">
@@ -148,6 +154,7 @@ export function MasonryGrid({ refreshKey = 0 }: Props) {
               asset={asset}
               onClick={() => setLightboxIndex(idx)}
               selectMode={selectMode}
+              onDelete={handleSingleDelete}
             />
           </div>
         ))}

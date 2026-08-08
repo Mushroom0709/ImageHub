@@ -59,9 +59,10 @@ export interface Asset {
   duration: number
   phash: string
   exif: Record<string, unknown> | null
-  starred: boolean
+  star_level: number
   flag_level: number
   quality_score: number
+  top_category_id: string | null
   created_at: string
   updated_at: string
   tags: Tag[]

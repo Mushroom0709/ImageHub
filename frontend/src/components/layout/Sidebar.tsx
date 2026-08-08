@@ -20,12 +20,12 @@ const CATEGORIES = [
 export function Sidebar() {
   const collapsed = useUIStore((s) => s.sidebarCollapsed)
   const [category, setCategory] = useState('')
-  const starred = useFilterStore((s) => s.starred)
+  const starLevel = useFilterStore((s) => s.starLevel)
   const trashed = useFilterStore((s) => s.trashed)
   const navigate = useNavigate()
 
   const toggleStarred = () => {
-    useFilterStore.setState({ starred: starred === true ? null : true })
+    useFilterStore.setState({ starLevel: starLevel === 0 ? 3 : 0 })
   }
   const toggleTrashed = () => {
     useFilterStore.setState({ trashed: !trashed })
@@ -78,7 +78,7 @@ export function Sidebar() {
       <div className="p-2 border-b border-zinc-200 dark:border-zinc-800 space-y-0.5">
         <QuickFilterButton
           label="⭐ 星标"
-          active={starred === true}
+          active={starLevel !== null && starLevel > 0}
           onClick={toggleStarred}
         />
         <QuickFilterButton

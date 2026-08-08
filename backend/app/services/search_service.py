@@ -30,7 +30,7 @@ class SearchService:
                 ["title", "description", "file_name", "tag_names"]
             )
             self.client.index(INDEX_NAME).update_filterable_attributes(
-                ["source_type", "starred", "flag_level", "asset_type"]
+                ["source_type", "star_level", "flag_level", "asset_type"]
             )
         except Exception as e:
             print(f"[Meilisearch] 初始化失败: {e}")
@@ -45,7 +45,7 @@ class SearchService:
                 "file_name": asset.get("file_name", ""),
                 "tag_names": [t["name"] for t in asset.get("tags", [])],
                 "source_type": asset.get("source_type", ""),
-                "starred": asset.get("starred", False),
+                "star_level": asset.get("star_level", 0),
                 "flag_level": asset.get("flag_level", 0),
                 "asset_type": asset.get("asset_type", "image"),
             }
