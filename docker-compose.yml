@@ -24,6 +24,10 @@ services:
       - TIKHUB_TOKEN=${TIKHUB_TOKEN}
       - TIKHUB_BASE_URL=${TIKHUB_BASE_URL}
       - JWT_SECRET=${JWT_SECRET}
+      - UPLOAD_MAX_FILE_SIZE=${UPLOAD_MAX_FILE_SIZE:-2147483648}
+      - UPLOAD_CHUNK_SIZE=${UPLOAD_CHUNK_SIZE:-8388608}
+      - UPLOAD_MULTIPART_THRESHOLD=${UPLOAD_MULTIPART_THRESHOLD:-104857600}
+      - UPLOAD_TMP_DIR=${UPLOAD_TMP_DIR:-/data/imagehub-tmp}
     depends_on:
       - db
       - redis
@@ -31,6 +35,7 @@ services:
     volumes:
       - ./backend:/app
       - /var/run/docker.sock:/var/run/docker.sock
+      - /data:/data
     restart: unless-stopped
 
   # 前端

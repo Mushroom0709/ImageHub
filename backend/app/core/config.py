@@ -1,8 +1,13 @@
 """应用配置"""
-from pydantic_settings import BaseSettings
+import os
+
+from pydantic import model_validator
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
+    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+
     # 基础
     APP_NAME: str = "ImageHub"
     DEBUG: bool = False
@@ -41,8 +46,32 @@ class Settings(BaseSettings):
     JWT_ALGORITHM: str = "HS256"
     JWT_EXPIRE_DAYS: int = 30
 
-    class Config:
-        env_file = ".env"
+    # 上传
+    # 单文件大小上限（字节），默认 2GB
+    UPLOAD_MAX_FILE_SIZE: int = 2 * 1024 * 1024 * 1024
+    # 分片大小（字节），默认 8MB
+    UPLOAD_CHUNK_SIZE: int = 8 * 1024 * 1024
+    # 超过该大小自动走分片上传（字节），默认 100MB
+    UPLOAD_MULTIPART_THRESHOLD: int = 100 * 1024 * 1024
+    # 上传/处理临时文件目录（建议挂载物理盘，避免容器 tmpfs 占内存）
+    UPLOAD_TMP_DIR: str = "/data/imagehub-tmp"
+
+    @model_validator(mode="after")
+    def ensure_upload_tmp_dir(self) -> "Settings":
+        """启动时校验临时目录存在且可写，失败抛清晰错误"""
+        try:
+            os.makedirs(self.UPLOAD_TMP_DIR, exist_ok=True)
+        except OSError as e:
+            raise ValueError(
+                f"UPLOAD_TMP_DIR 创建失败: {self.UPLOAD_TMP_DIR} ({e})。"
+                "请检查 docker-compose 是否挂载了物理盘目录。"
+            )
+        if not os.access(self.UPLOAD_TMP_DIR, os.W_OK):
+            raise ValueError(
+                f"UPLOAD_TMP_DIR 不可写: {self.UPLOAD_TMP_DIR}。"
+                "请检查目录权限。"
+            )
+        return self
 
 
 settings = Settings()

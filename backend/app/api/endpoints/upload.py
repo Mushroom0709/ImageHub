@@ -1,4 +1,5 @@
 """上传 API 端点"""
+import os
 import uuid
 from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException
@@ -184,11 +185,12 @@ def upload_from_url(data: FromUrlRequest, db: Session = Depends(get_db)):
     obs_key = f"raw/image/{today}/{task_id}.{ext}"
 
     # 下载到临时文件
+    from app.core.config import settings
     try:
         with httpx.Client(timeout=60, follow_redirects=True) as client:
             resp = client.get(data.url)
             resp.raise_for_status()
-            tmp_path = f"/tmp/{task_id}.{ext}"
+            tmp_path = os.path.join(settings.UPLOAD_TMP_DIR, f"{task_id}.{ext}")
             with open(tmp_path, "wb") as f:
                 f.write(resp.content)
     except Exception as e:

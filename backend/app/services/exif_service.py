@@ -15,7 +15,8 @@ class ExifService:
         从 OBS 下载文件读取 EXIF
         返回结构化 EXIF（不含二进制缩略图）
         """
-        with tempfile.NamedTemporaryFile(suffix=".img", delete=False) as tmp:
+        from app.core.config import settings
+        with tempfile.NamedTemporaryFile(suffix=".img", delete=False, dir=settings.UPLOAD_TMP_DIR) as tmp:
             tmp_path = tmp.name
 
         try:

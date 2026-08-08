@@ -15,9 +15,10 @@ class VideoService:
         处理视频：抽封面帧 → 生成缩略图 → 上传 OBS
         返回 (width, height)
         """
-        with tempfile.NamedTemporaryFile(suffix=".video", delete=False) as tmp:
+        from app.core.config import settings
+        with tempfile.NamedTemporaryFile(suffix=".video", delete=False, dir=settings.UPLOAD_TMP_DIR) as tmp:
             video_path = tmp.name
-        with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as tmp2:
+        with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False, dir=settings.UPLOAD_TMP_DIR) as tmp2:
             frame_path = tmp2.name
 
         try:

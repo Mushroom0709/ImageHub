@@ -29,8 +29,9 @@ class ThumbnailService:
         ext = os.path.splitext(obs_key)[1].lower()
         is_raw = ext in RAW_EXTS
 
-        # 下载原图
-        with tempfile.NamedTemporaryFile(suffix=ext or ".img", delete=False) as tmp:
+        # 下载原图（临时文件放物理盘）
+        from app.core.config import settings
+        with tempfile.NamedTemporaryFile(suffix=ext or ".img", delete=False, dir=settings.UPLOAD_TMP_DIR) as tmp:
             tmp_path = tmp.name
 
         try:
@@ -65,21 +66,24 @@ class ThumbnailService:
 
     def _handle_raw(self, tmp_path: str, obs_key: str) -> tuple[int, int]:
         """RAW 格式：用 dcraw -e 抽取内嵌 JPG 预览，再生成缩略图"""
-        # dcraw -e 会输出与输入同名的 .preview.jpg 文件
+        from app.core.config import settings
+
+        tmp_dir = settings.UPLOAD_TMP_DIR
+        # dcraw -e 会输出与输入同名的 .preview.jpg 文件（输出到 cwd）
         result = subprocess.run(
             ["dcraw", "-e", tmp_path],
             capture_output=True,
             timeout=60,
-            cwd="/tmp",
+            cwd=tmp_dir,
         )
 
         base = os.path.basename(tmp_path)
         stem = os.path.splitext(base)[0]
         # dcraw -e 输出文件名可能是 .thumb.jpg 或 .preview.jpg（不同 dcraw 版本）
         candidates = [
-            f"/tmp/{stem}.thumb.jpg",
-            f"/tmp/{stem}.preview.jpg",
-            f"/tmp/{stem}.jpg",
+            os.path.join(tmp_dir, f"{stem}.thumb.jpg"),
+            os.path.join(tmp_dir, f"{stem}.preview.jpg"),
+            os.path.join(tmp_dir, f"{stem}.jpg"),
         ]
         preview_path = next((c for c in candidates if os.path.exists(c)), None)
         if not preview_path:

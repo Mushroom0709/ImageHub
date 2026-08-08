@@ -53,8 +53,9 @@ async def import_upload(
             # 读取文件内容
             content = await file.read()
 
-            # 保存到本地临时文件
-            tmp_path = f"/tmp/{upload_id}_{i}{ext}"
+            # 保存到本地临时文件（物理盘）
+            from app.core.config import settings
+            tmp_path = os.path.join(settings.UPLOAD_TMP_DIR, f"{upload_id}_{i}{ext}")
             with open(tmp_path, "wb") as f:
                 f.write(content)
 
@@ -131,21 +132,24 @@ def _extract_arw_preview(obs_key: str, local_path: str, today: str, upload_id: s
     """提取 ARW 内嵌预览 JPG（dcraw -e）并上传为可浏览版本"""
     import subprocess
 
-    preview_path = f"/tmp/{upload_id}_{index}_preview.jpg"
+    from app.core.config import settings
+
+    tmp_dir = settings.UPLOAD_TMP_DIR
+    preview_path = os.path.join(tmp_dir, f"{upload_id}_{index}_preview.jpg")
     try:
-        # dcraw -e 提取内嵌预览
+        # dcraw -e 提取内嵌预览（输出到 cwd）
         result = subprocess.run(
             ["dcraw", "-e", local_path],
             capture_output=True,
             text=True,
             timeout=60,
-            cwd="/tmp",
+            cwd=tmp_dir,
         )
         # dcraw 输出与输入同名的 .preview.jpg 或同名 .jpg
         base = os.path.basename(local_path)
         candidates = [
-            f"/tmp/{os.path.splitext(base)[0]}.preview.jpg",
-            f"/tmp/{os.path.splitext(base)[0]}.jpg",
+            os.path.join(tmp_dir, f"{os.path.splitext(base)[0]}.preview.jpg"),
+            os.path.join(tmp_dir, f"{os.path.splitext(base)[0]}.jpg"),
         ]
         found = next((c for c in candidates if os.path.exists(c)), None)
         if not found:

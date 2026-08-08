@@ -177,7 +177,8 @@ class TikHubService:
                 # 3. 默认值
                 if not ext:
                     ext = default_ext
-                tmp = tempfile.NamedTemporaryFile(suffix=f".{ext}", delete=False)
+                from app.core.config import settings
+                tmp = tempfile.NamedTemporaryFile(suffix=f".{ext}", delete=False, dir=settings.UPLOAD_TMP_DIR)
                 tmp.write(resp.content)
                 tmp.close()
                 return tmp.name
