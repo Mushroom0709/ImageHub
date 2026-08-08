@@ -56,8 +56,18 @@ class ObsService:
             for obj in contents
         ]
 
-    def generate_presigned_url(self, key: str, method: str = "GET", expires: int = 3600, headers: dict | None = None) -> str:
-        """生成预签名 URL"""
+    def generate_presigned_url(
+        self,
+        key: str,
+        method: str = "GET",
+        expires: int = 3600,
+        headers: dict | None = None,
+        query_params: dict | None = None,
+    ) -> str:
+        """生成预签名 URL
+
+        query_params: 附加查询参数（如分片上传的 uploadId/partNumber）
+        """
         full_key = self._full_key(key)
         result = self.client.createSignedUrl(
             method=method,
@@ -65,6 +75,7 @@ class ObsService:
             objectKey=full_key,
             expires=expires,
             headers=headers,
+            queryParams=query_params,
         )
         return result["signedUrl"]
 
