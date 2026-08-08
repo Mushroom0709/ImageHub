@@ -37,7 +37,14 @@ export function uploadToObs(uploadUrl: string, file: Blob, onProgress?: (percent
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest()
     xhr.open('PUT', uploadUrl)
-    xhr.setRequestHeader('Content-Type', '') // 显式空，避免浏览器默认类型
+    // OBS V2 签名默认把 Content-Type 签为空字符串。
+    // 必须显式设置空字符串覆盖浏览器自动添加的 Content-Type,
+    // 否则签名校验失败 403。
+    try {
+      xhr.setRequestHeader('Content-Type', '')
+    } catch (e) {
+      // 部分浏览器不允许空 header，忽略
+    }
     if (onProgress) {
       xhr.upload.onprogress = (e) => {
         if (e.lengthComputable) {
@@ -49,10 +56,13 @@ export function uploadToObs(uploadUrl: string, file: Blob, onProgress?: (percent
       if (xhr.status >= 200 && xhr.status < 300) {
         resolve()
       } else {
-        reject(new Error(`上传失败: HTTP ${xhr.status}`))
+        // 记录响应内容（用于诊断）
+        reject(new Error(`上传失败: HTTP ${xhr.status} ${xhr.statusText || ''} | ${(xhr.responseText || '').slice(0, 200)}`))
       }
     }
-    xhr.onerror = () => reject(new Error('上传失败: 网络错误'))
+    xhr.onerror = () => reject(new Error('上传失败: 网络错误（CORS 或连接中断）'))
+    xhr.ontimeout = () => reject(new Error('上传失败: 超时'))
+    xhr.onabort = () => reject(new Error('上传失败: 中断'))
     xhr.send(file)
   })
 }
