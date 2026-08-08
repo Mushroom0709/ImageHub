@@ -129,6 +129,8 @@ class AiTaggingService:
                         source="ai",
                     ))
                     db.flush()
+                    # 高频词信任机制：pending 标签被使用次数达到阈值 → 自动转 active
+                    self._maybe_auto_approve(db, tag)
                 count += 1
             except IntegrityError:
                 # 并发冲突：已经关联过了
@@ -137,6 +139,15 @@ class AiTaggingService:
 
         db.commit()
         return count
+
+    def _maybe_auto_approve(self, db: Session, tag: Tag):
+        """高频词自动通过：pending 标签使用次数 >= TAG_AUTO_APPROVE_MIN_USE → active"""
+        if tag.status != "pending":
+            return
+        from app.core.config import settings
+        use_count = db.query(AssetTag).filter(AssetTag.tag_id == tag.id).count()
+        if use_count >= settings.TAG_AUTO_APPROVE_MIN_USE:
+            tag.status = "active"
 
     def _get_or_create_tag(self, db: Session, name: str, category: str):
         """获取或创建标签，处理并发唯一约束冲突（带重试）"""

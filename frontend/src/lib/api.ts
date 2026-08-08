@@ -107,6 +107,26 @@ export const assetApi = {
       method: 'POST',
       body: JSON.stringify({ asset_ids: assetIds, add_tag_ids: addTagIds, remove_tag_ids: removeTagIds }),
     }),
+  batchMove: (assetIds: string[], topCategoryId: string | null) =>
+    request<{ ok: boolean; count: number }>('/assets/batch-move', {
+      method: 'POST',
+      body: JSON.stringify({ asset_ids: assetIds, top_category_id: topCategoryId }),
+    }),
+  batchStar: (assetIds: string[], starLevel: number) =>
+    request<{ ok: boolean; count: number }>('/assets/batch-star', {
+      method: 'POST',
+      body: JSON.stringify({ asset_ids: assetIds, star_level: starLevel }),
+    }),
+  batchFlag: (assetIds: string[], flagLevel: number) =>
+    request<{ ok: boolean; count: number }>('/assets/batch-flag', {
+      method: 'POST',
+      body: JSON.stringify({ asset_ids: assetIds, flag_level: flagLevel }),
+    }),
+  batchExport: (assetIds: string[], exportType: 'original' | 'medium' = 'original') =>
+    request<{ ok: boolean; count: number; items: { asset_id: string; file_name: string; asset_type: string; file_size: number; url: string }[] }>('/assets/batch-export', {
+      method: 'POST',
+      body: JSON.stringify({ asset_ids: assetIds, export_type: exportType }),
+    }),
 }
 
 // ===== 顶层分类（项目）API =====

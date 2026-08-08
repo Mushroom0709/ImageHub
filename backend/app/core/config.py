@@ -32,6 +32,10 @@ class Settings(BaseSettings):
     AI_API_BASE: str = ""
     AI_API_KEY: str = ""
     AI_MODEL: str = "/model"
+    # AI 标签置信度低于此值 → 进待审核（默认 0.6，V2 从 0.7 下调减少审核量）
+    AI_TAG_REVIEW_THRESHOLD: float = 0.6
+    # 待审核标签被使用的次数达到该值 → 自动转 active（高频词信任机制）
+    TAG_AUTO_APPROVE_MIN_USE: int = 3
 
     # TikHub
     TIKHUB_TOKEN: str = ""

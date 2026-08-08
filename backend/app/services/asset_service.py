@@ -226,6 +226,66 @@ class AssetService:
         self.db.commit()
         return len(assets)
 
+    def batch_move(self, asset_ids: list[uuid.UUID], top_category_id: uuid.UUID | None) -> int:
+        """批量修改所属项目（None = 移出项目）"""
+        assets = self.db.query(Asset).filter(
+            Asset.id.in_(asset_ids),
+            Asset.deleted_at.is_(None),
+        ).all()
+        for asset in assets:
+            asset.top_category_id = top_category_id
+        self.db.commit()
+        return len(assets)
+
+    def batch_star(self, asset_ids: list[uuid.UUID], star_level: int) -> int:
+        """批量修改星级（0-5）"""
+        assets = self.db.query(Asset).filter(
+            Asset.id.in_(asset_ids),
+            Asset.deleted_at.is_(None),
+        ).all()
+        for asset in assets:
+            asset.star_level = star_level
+        self.db.commit()
+        return len(assets)
+
+    def batch_flag(self, asset_ids: list[uuid.UUID], flag_level: int) -> int:
+        """批量修改旗标（0-5）"""
+        assets = self.db.query(Asset).filter(
+            Asset.id.in_(asset_ids),
+            Asset.deleted_at.is_(None),
+        ).all()
+        for asset in assets:
+            asset.flag_level = flag_level
+        self.db.commit()
+        return len(assets)
+
+    def batch_export(self, asset_ids: list[uuid.UUID], export_type: str = "original") -> list[dict]:
+        """批量导出：返回 OBS 预签名 URL 列表"""
+        assets = self.db.query(Asset).filter(
+            Asset.id.in_(asset_ids),
+            Asset.deleted_at.is_(None),
+        ).all()
+        result = []
+        for asset in assets:
+            if not asset.obs_key:
+                continue
+            if export_type == "medium" and asset.asset_type == "image":
+                key = asset.obs_key.replace("raw/", "thumb/medium/", 1) if "raw/" in asset.obs_key else f"thumb/medium/{asset.obs_key}"
+            else:
+                key = asset.obs_key
+            try:
+                url = obs_service.generate_presigned_url(key, expires=3600 * 24)
+                result.append({
+                    "asset_id": str(asset.id),
+                    "file_name": asset.file_name,
+                    "asset_type": asset.asset_type,
+                    "file_size": asset.file_size,
+                    "url": url,
+                })
+            except Exception:
+                continue
+        return result
+
     def get_similar(self, asset_id: uuid.UUID, limit: int = 12) -> list[Asset]:
         """相似素材（pHash 汉明距离）"""
         # MVP 简单实现：先拿 phash，然后用 PG 函数算距离

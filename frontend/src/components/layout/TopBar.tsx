@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { Link } from 'react-router-dom'
-import { useUIStore } from '../../stores/uiStore'
+import { useUIStore, useSelectionStore } from '../../stores/uiStore'
 import { useUploadStore } from '../../stores/uploadStore'
 import { SearchBar } from '../search/SearchBar'
 
@@ -17,6 +17,8 @@ export function TopBar({ onUploadFiles, onUploadFolder, onCollectClick, onBack }
   const toggleSidebar = useUIStore((s) => s.toggleSidebar)
   const collapsed = useUIStore((s) => s.sidebarCollapsed)
   const items = useUploadStore((s) => s.items)
+  const selectMode = useSelectionStore((s) => s.selectMode)
+  const enterSelectMode = useSelectionStore((s) => s.enterSelectMode)
   const [uploadMenuOpen, setUploadMenuOpen] = useState(false)
   const menuRef = useRef<HTMLDivElement>(null)
 
@@ -57,6 +59,18 @@ export function TopBar({ onUploadFiles, onUploadFolder, onCollectClick, onBack }
 
       {/* 右侧操作 */}
       <div className="flex items-center gap-2 ml-auto">
+        {/* 多选模式开关 */}
+        <button
+          onClick={() => (selectMode ? undefined : enterSelectMode())}
+          className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+            selectMode
+              ? 'bg-teal-600 text-white'
+              : 'bg-zinc-100 dark:bg-zinc-800 hover:bg-zinc-200 dark:hover:bg-zinc-700'
+          }`}
+          title={selectMode ? '多选模式已开启，点击素材选中' : '进入多选模式'}
+        >
+          {selectMode ? '✓ 多选模式' : '☑ 多选'}
+        </button>
         <button
           onClick={onCollectClick}
           className="px-3 py-1.5 rounded-lg bg-zinc-100 dark:bg-zinc-800 hover:bg-zinc-200 dark:hover:bg-zinc-700 text-sm font-medium"

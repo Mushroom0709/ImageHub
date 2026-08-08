@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 from app.core.database import get_db
 from app.core.response import ok
 from app.schemas.asset import Asset, AssetCreate, AssetUpdate, AssetListResponse
-from app.schemas.tag import BatchTagRequest
+from app.schemas.tag import BatchTagRequest, BatchMoveRequest, BatchStarRequest, BatchFlagRequest, BatchExportRequest
 from app.services.asset_service import AssetService
 
 router = APIRouter(tags=["assets"])
@@ -76,10 +76,46 @@ def batch_recover(asset_ids: list[uuid.UUID], db: Session = Depends(get_db)):
 
 @router.post("/batch-tag")
 def batch_tag(data: BatchTagRequest, db: Session = Depends(get_db)):
-    """批量打标"""
+    """批量打标（加标签/移除标签）"""
     svc = AssetService(db)
     count = svc.batch_tag(data.asset_ids, data.add_tag_ids, data.remove_tag_ids)
     return ok({"ok": True, "affected_count": count})
+
+
+@router.post("/batch-move")
+def batch_move(data: BatchMoveRequest, db: Session = Depends(get_db)):
+    """批量修改所属项目（top_category_id=null 表示移出项目）"""
+    svc = AssetService(db)
+    count = svc.batch_move(data.asset_ids, data.top_category_id)
+    return ok({"ok": True, "count": count})
+
+
+@router.post("/batch-star")
+def batch_star(data: BatchStarRequest, db: Session = Depends(get_db)):
+    """批量修改星级（0=清除，1-5=星级）"""
+    if not 0 <= data.star_level <= 5:
+        raise HTTPException(status_code=400, detail="star_level 必须为 0-5")
+    svc = AssetService(db)
+    count = svc.batch_star(data.asset_ids, data.star_level)
+    return ok({"ok": True, "count": count})
+
+
+@router.post("/batch-flag")
+def batch_flag(data: BatchFlagRequest, db: Session = Depends(get_db)):
+    """批量修改旗标（0=清除，1-5=颜色旗标）"""
+    if not 0 <= data.flag_level <= 5:
+        raise HTTPException(status_code=400, detail="flag_level 必须为 0-5")
+    svc = AssetService(db)
+    count = svc.batch_flag(data.asset_ids, data.flag_level)
+    return ok({"ok": True, "count": count})
+
+
+@router.post("/batch-export")
+def batch_export(data: BatchExportRequest, db: Session = Depends(get_db)):
+    """批量导出：返回 OBS 预签名 URL 列表（24h 有效）"""
+    svc = AssetService(db)
+    items = svc.batch_export(data.asset_ids, data.export_type)
+    return ok({"ok": True, "count": len(items), "items": items})
 
 
 @router.get("/{asset_id}")
@@ -218,11 +254,3 @@ def remove_tag(asset_id: uuid.UUID, tag_id: uuid.UUID, db: Session = Depends(get
     if not ok_flag:
         raise HTTPException(status_code=404, detail="关联不存在")
     return ok({"ok": True})
-
-
-@router.post("/batch-tag")
-def batch_tag(data: BatchTagRequest, db: Session = Depends(get_db)):
-    """批量打标"""
-    svc = AssetService(db)
-    count = svc.batch_tag(data.asset_ids, data.add_tag_ids, data.remove_tag_ids)
-    return ok({"ok": True, "affected_count": count})

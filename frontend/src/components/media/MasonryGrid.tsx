@@ -105,9 +105,7 @@ export function MasonryGrid({ refreshKey = 0 }: Props) {
     const handleStarSelected = async () => {
       const { selectedIds, clearSelection } = useSelectionStore.getState()
       const ids = Array.from(selectedIds)
-      for (const id of ids) {
-        await assetApi.update(id, { star_level: 3 })
-      }
+      await assetApi.batchStar(ids, 3)
       clearSelection()
       loadPage(1, false)
     }
