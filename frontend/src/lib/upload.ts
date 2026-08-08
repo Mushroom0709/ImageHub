@@ -100,39 +100,87 @@ export async function bulkImport(files: File[], onProgress?: (done: number, tota
 /** 一站式上传：凭证 → 直传 → 完成回调 */
 export async function uploadFiles(
   files: File[],
-  onFileProgress?: (index: number, percent: number) => void,
-  onFileDone?: (index: number, assetId: string) => void,
+  options?: {
+    topCategoryId?: string | null
+    concurrency?: number
+    onFileProgress?: (index: number, percent: number) => void
+    onFileStatus?: (index: number, status: 'uploading' | 'processing' | 'done' | 'failed') => void
+  },
 ): Promise<string[]> {
-  const fileInfos = files.map((f) => ({
-    file_name: f.name,
-    file_size: f.size,
-    content_type: f.type || 'application/octet-stream',
-  }))
+  const { topCategoryId = null, concurrency = 3, onFileProgress, onFileStatus } = options || {}
 
-  const { upload_id, credentials } = await getUploadCredentials(fileInfos)
+  // 判断每个文件的类型
+  const videoExts = ['mp4', 'mov', 'avi', 'mkv', 'webm']
+  const fileInfos = files.map((f) => {
+    const ext = f.name.split('.').pop()?.toLowerCase() || ''
+    return {
+      file_name: f.name,
+      file_size: f.size,
+      content_type: f.type || 'application/octet-stream',
+      asset_type: videoExts.includes(ext) ? 'video' : 'image',
+    }
+  })
+
+  const token = localStorage.getItem('token')
+  const credResp = await fetch('/api/upload/credentials', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    body: JSON.stringify({ files: fileInfos, top_category_id: topCategoryId || undefined }),
+  })
+  const credData = await credResp.json()
+  if (credData.code !== 0) throw new Error(credData.message || '获取上传凭证失败')
+  const { upload_id, credentials } = credData.data
 
   const assetIds: string[] = []
-  for (let i = 0; i < files.length; i++) {
-    const file = files[i]
-    const cred = credentials[i]
-    if (!cred) continue
+  let current = 0
+  const total = files.length
 
-    try {
-      await uploadToObs(cred.upload_url, file, (p) => onFileProgress?.(i, p))
-      const ids = await completeUpload(upload_id, [
-        {
-          file_index: i,
-          obs_key: cred.obs_key,
-          file_name: file.name,
-          file_size: file.size,
-        },
-      ])
-      assetIds.push(...ids)
-      onFileDone?.(i, ids[0])
-    } catch (err) {
-      onFileProgress?.(i, -1) // -1 = 失败
+  async function worker() {
+    while (current < total) {
+      const i = current++
+      const file = files[i]
+      const cred = credentials[i]
+      if (!cred) continue
+
+      onFileStatus?.(i, 'uploading')
+      try {
+        await uploadToObs(cred.upload_url, file, (p) => onFileProgress?.(i, p))
+        onFileStatus?.(i, 'processing')
+        const resp = await fetch('/api/upload/complete', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          },
+          body: JSON.stringify({
+            upload_id,
+            top_category_id: topCategoryId || undefined,
+            files: [
+              {
+                file_index: i,
+                obs_key: cred.obs_key,
+                file_name: file.name,
+                file_size: file.size,
+              },
+            ],
+          }),
+        })
+        const data = await resp.json()
+        if (data.code !== 0) throw new Error(data.message || '处理失败')
+        assetIds.push(...data.data.asset_ids)
+        onFileStatus?.(i, 'done')
+      } catch (err) {
+        onFileProgress?.(i, -1)
+        onFileStatus?.(i, 'failed')
+      }
     }
   }
+
+  const workers = Array.from({ length: Math.min(concurrency, total) }, () => worker())
+  await Promise.all(workers)
 
   return assetIds
 }

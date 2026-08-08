@@ -3,7 +3,7 @@ import os
 import uuid
 import tempfile
 from datetime import datetime
-from fastapi import APIRouter, Depends, UploadFile, File
+from fastapi import APIRouter, Depends, UploadFile, File, Form
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
@@ -23,6 +23,7 @@ SUPPORTED_EXTS = IMAGE_EXTS | VIDEO_EXTS
 @router.post("/upload")
 async def import_upload(
     files: list[UploadFile] = File(...),
+    top_category_id: str | None = Form(None, description="归属项目ID"),
     db: Session = Depends(get_db),
 ):
     """
@@ -73,6 +74,7 @@ async def import_upload(
                 asset_type=asset_type,
                 obs_bucket=obs_service.bucket,
                 obs_key=obs_key,
+                top_category_id=top_category_id,
             )
             db.add(asset)
             db.flush()
