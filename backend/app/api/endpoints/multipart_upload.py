@@ -53,7 +53,17 @@ def init_multipart_upload(data: InitRequest, db: Session = Depends(get_db)):
         .first()
     )
     if existing and existing.status == "uploading":
-        return ok(_session_payload(existing))
+        # 续传：生成所有分片 URL（前端按需用 part-url 重签也可）
+        part_urls = []
+        for n in range(1, existing.total_parts + 1):
+            url = obs_service.generate_presigned_url(
+                existing.obs_key,
+                method="PUT",
+                expires=86400,
+                query_params={"uploadId": existing.obs_upload_id, "partNumber": n},
+            )
+            part_urls.append({"part_number": n, "url": url})
+        return ok(_session_payload(existing, part_urls=part_urls))
 
     # OBS key：raw/{image|video}/YYYY/MM/DD/{batch_id}.{ext}
     ext = data.file_name.rsplit(".", 1)[-1].lower() if "." in data.file_name else "bin"
