@@ -1,0 +1,20 @@
+{
+  "version": 1,
+  "recipe": {
+    "name": "imagehub-local-verify",
+    "kind": "custom",
+    "bootstrap": [],
+    "build": [
+      "bash ./verify.sh"
+    ],
+    "test": [
+      "python3 -m compileall -q backend/app"
+    ],
+    "start": "python3 -m http.server 8000 --bind 127.0.0.1",
+    "port": 8000,
+    "readinessPath": "/",
+    "evidence": [
+      "Custom local recipe: host has no Docker daemon; verify.sh + local http.server for readiness"
+    ]
+  }
+}
