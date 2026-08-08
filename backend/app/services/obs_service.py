@@ -161,18 +161,23 @@ class ObsService:
     def list_uploaded_parts(self, key: str, upload_id: str) -> list[dict]:
         """列出已上传分片（断点续传时跳过已传部分）"""
         full_key = self._full_key(key)
-        resp = self.client.listParts(self.bucket, full_key, upload_id)
-        if resp.status >= 300:
+        try:
+            resp = self.client.listParts(self.bucket, full_key, upload_id)
+            if resp.status >= 300:
+                print(f"[OBS] listParts failed: status={resp.status}, key={key}, uid={upload_id}, error={getattr(resp, 'errorMessage', '')[:100]}")
+                return []
+            parts = getattr(resp.body, "parts", None) or []
+            return [
+                {
+                    "part_number": int(p.partNumber),
+                    "etag": p.etag,
+                    "size": int(p.size or 0),
+                }
+                for p in parts
+            ]
+        except Exception as e:
+            print(f"[OBS] listParts exception: {e}")
             return []
-        parts = getattr(resp.body, "parts", None) or []
-        return [
-            {
-                "part_number": int(p.partNumber),
-                "etag": p.etag,
-                "size": int(p.size or 0),
-            }
-            for p in parts
-        ]
 
 
 # 全局单例

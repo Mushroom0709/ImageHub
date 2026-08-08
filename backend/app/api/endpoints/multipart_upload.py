@@ -27,7 +27,7 @@ class InitRequest(BaseModel):
 class PartCompleteRequest(BaseModel):
     batch_id: str
     part_number: int
-    etag: str
+    etag: str = ""  # 可选：前端从 XHR getResponseHeader('ETag') 拿；空时后端从 OBS listParts 取
     size: int = 0
 
 
@@ -150,8 +150,11 @@ def part_complete(data: PartCompleteRequest, db: Session = Depends(get_db)):
 
 
 @router.post("/multipart/complete")
-def complete_multipart(data: BatchRequest, db: Session = Depends(get_db)):
-    """合并分片 + 素材创建 + 缩略图/EXIF/AI（复用 upload.py 管线）"""
+async def complete_multipart(data: BatchRequest, db: Session = Depends(get_db)):
+    """合并分片 + 素材创建 + 缩略图/EXIF/AI（复用 upload.py 管线）
+
+    async 因为 upload.py.complete_upload 是 async def（#54 SSE 改造）
+    """
     record = (
         db.query(MultipartUpload)
         .filter(MultipartUpload.batch_id == data.batch_id)
@@ -205,7 +208,7 @@ def complete_multipart(data: BatchRequest, db: Session = Depends(get_db)):
     from app.api.endpoints.upload import CompleteFileInfo, CompleteRequest, complete_upload
 
     try:
-        result = complete_upload(
+        result = await complete_upload(
             CompleteRequest(
                 upload_id=record.batch_id,
                 files=[
