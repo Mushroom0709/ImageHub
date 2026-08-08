@@ -34,12 +34,23 @@ function formatSpeed(bytesPerSec: number): string {
 // 模块级单例：跟踪正在订阅 SSE 的 assetId（避免 useEffect 重复订阅）
 const activeSSESubs = new Set<string>()
 
-export const UploadZone = forwardRef<{ openFiles: () => void; openFolder: () => void }, Props>(
-  function UploadZone({ onUploaded }, ref) {
+/** 重试 item 的回调（用户从 file picker 选文件后调用） */
+interface RetryContext {
+  originalId: string
+  newItemId: string
+  file: File
+}
+
+export const UploadZone = forwardRef<
+  { openFiles: () => void; openFolder: () => void; retryItem: (id: string, cb: (file: File) => void) => void },
+  Props
+>(function UploadZone({ onUploaded }, ref) {
     const navigate = useNavigate()
     const [dragging, setDragging] = useState(false)
     const fileInputRef = useRef<HTMLInputElement>(null)
     const folderInputRef = useRef<HTMLInputElement>(null)
+    const retryInputRef = useRef<HTMLInputElement>(null)
+    const retryCallbackRef = useRef<((file: File) => void) | null>(null)
     const currentTopCategoryId = useUIStore((s: any) => s.currentTopCategoryId)
 
     // 来自 store（持久化）
@@ -49,10 +60,41 @@ export const UploadZone = forwardRef<{ openFiles: () => void; openFolder: () => 
     const addItems = useUploadStore((s) => s.addItems)
     const updateItem = useUploadStore((s) => s.updateItem)
     const updateStage = useUploadStore((s) => s.updateStage)
+    const removeItem = useUploadStore((s) => s.removeItem)
+
+    // 接住 UploadPage 的重试事件（custom event 解耦）
+    useEffect(() => {
+      const handler = (e: Event) => {
+        const detail = (e as CustomEvent<{ id: string }>).detail
+        if (detail?.id && retryInputRef.current) {
+          // 把回调暂存到 ref（retryInput 的 onChange 会触发）
+          retryCallbackRef.current = (file: File) => {
+            // 用户选了文件 → 复用原 ID 创建新 item
+            const newItem = newUploadItem(file.name, file.size)
+            newItem.id = detail.id
+            addItems([newItem])
+            // 启动上传链路
+            startUploadSingle(file, detail.id)
+          }
+          retryInputRef.current.value = ''
+          retryInputRef.current.click()
+        }
+      }
+      window.addEventListener('imagehub-retry-item', handler as EventListener)
+      return () => window.removeEventListener('imagehub-retry-item', handler as EventListener)
+    }, [addItems])
 
     useImperativeHandle(ref, () => ({
       openFiles: () => fileInputRef.current?.click(),
       openFolder: () => folderInputRef.current?.click(),
+      retryItem: (id, cb) => {
+        // 把 callback 暂存，触发隐藏的 file input
+        retryCallbackRef.current = (file: File) => cb(file)
+        if (retryInputRef.current) {
+          retryInputRef.current.value = '' // 清空以支持同名文件
+          retryInputRef.current.click()
+        }
+      },
     }))
 
     // 后端 SSE 阶段订阅：每个 uploading/processing 的 item 订阅一次
@@ -189,6 +231,50 @@ export const UploadZone = forwardRef<{ openFiles: () => void; openFolder: () => 
         }
       },
       [currentTopCategoryId, onUploaded, addItems, updateItem, updateStage, setPanelCollapsed],
+    )
+
+    // 重试单个文件（复用原 item.id）
+    const startUploadSingle = useCallback(
+      async (file: File, itemId: string) => {
+        if (!isSupported(file.name)) {
+          alert(`不支持的文件类型: ${file.name}`)
+          removeItem(itemId)
+          return
+        }
+        try {
+          await uploadFiles([file], {
+            topCategoryId: currentTopCategoryId,
+            concurrency: 1,
+            onFileProgress: (i, p, extra) => {
+              updateItem(itemId, {
+                overallProgress: Math.min(60, Math.round(p * 0.6)),
+                multipart: extra?.multipart,
+                partNumber: extra?.partNumber,
+                totalParts: extra?.totalParts,
+                speed: extra?.speed,
+              })
+              updateStage(itemId, 'obs', { progress: p, status: 'processing' })
+            },
+            onFileStatus: (i, status, assetId) => {
+              if (status === 'uploading') {
+                updateItem(itemId, { status: 'uploading' })
+              } else if (status === 'processing') {
+                updateItem(itemId, { status: 'processing', assetId })
+              } else if (status === 'done') {
+                updateItem(itemId, { status: 'done', overallProgress: 100 })
+                updateStage(itemId, 'obs', { status: 'done', progress: 100 })
+              } else if (status === 'failed') {
+                updateItem(itemId, { status: 'failed', errorMessage: '重试失败' })
+              }
+            },
+          })
+          onUploaded()
+        } catch (err) {
+          console.error('重试上传失败', err)
+          updateItem(itemId, { status: 'failed', errorMessage: String(err) })
+        }
+      },
+      [currentTopCategoryId, onUploaded, updateItem, updateStage, removeItem],
     )
 
     // 拖拽
@@ -461,6 +547,22 @@ export const UploadZone = forwardRef<{ openFiles: () => void; openFolder: () => 
           className="hidden"
           onChange={(e) => {
             if (e.target.files) startUpload(Array.from(e.target.files))
+            e.target.value = ''
+          }}
+        />
+        {/* 重试用的单文件 input（hidden，通过 retryItem ref 触发） */}
+        <input
+          ref={retryInputRef}
+          type="file"
+          multiple
+          accept="image/*,video/*,.arw,.raw,.cr2,.nef,.dng"
+          className="hidden"
+          onChange={(e) => {
+            if (e.target.files && retryCallbackRef.current) {
+              // 收集所有选中的文件（可能用户选了多个），批量回调
+              Array.from(e.target.files).forEach((f) => retryCallbackRef.current?.(f))
+              retryCallbackRef.current = null
+            }
             e.target.value = ''
           }}
         />

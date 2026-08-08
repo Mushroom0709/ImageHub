@@ -20,20 +20,6 @@ function formatSize(bytes: number): string {
   return `${(bytes / 1024 / 1024 / 1024).toFixed(2)} GB`
 }
 
-function formatSpeed(bytesPerSec: number): string {
-  if (!bytesPerSec || bytesPerSec <= 0) return ''
-  if (bytesPerSec < 1024) return `${Math.round(bytesPerSec)} B/s`
-  if (bytesPerSec < 1024 * 1024) return `${(bytesPerSec / 1024).toFixed(0)} KB/s`
-  return `${(bytesPerSec / 1024 / 1024).toFixed(1)} MB/s`
-}
-
-function fmtTime(ms: number): string {
-  const sec = Math.floor(ms / 1000)
-  if (sec < 60) return `${sec}s`
-  if (sec < 3600) return `${Math.floor(sec / 60)}m ${sec % 60}s`
-  return `${Math.floor(sec / 3600)}h ${Math.floor((sec % 3600) / 60)}m`
-}
-
 /** 单个 5 阶段进度环（圆环图） */
 function StageRings({ item }: { item: UploadItem }) {
   const stageLabels: Record<Stage, string> = {
@@ -104,9 +90,15 @@ function StageRings({ item }: { item: UploadItem }) {
 }
 
 /** 单条上传记录 */
-function UploadRow({ item }: { item: UploadItem }) {
-  const removeItem = useUploadStore((s) => s.removeItem)
-
+function UploadRow({
+  item,
+  onRetry,
+  onRemove,
+}: {
+  item: UploadItem
+  onRetry: (id: string) => void
+  onRemove: (id: string) => void
+}) {
   return (
     <tr className="border-b border-zinc-200 dark:border-zinc-800 hover:bg-zinc-50 dark:hover:bg-zinc-900/50">
       {/* 文件名 + 大小 */}
@@ -127,7 +119,13 @@ function UploadRow({ item }: { item: UploadItem }) {
             <span className="text-teal-500">
               {item.multipart ? `分片上传中 ${item.partNumber}/${item.totalParts}` : `OBS 上传 ${item.overallProgress}%`}
             </span>
-            {item.speed ? <span className="text-zinc-500">{formatSpeed(item.speed)}</span> : null}
+            {item.speed ? <span className="text-zinc-500">{Math.round(item.speed / 1024 / 1024)} MB/s</span> : null}
+          </div>
+        )}
+        {item.status === 'paused' && (
+          <div className="flex flex-col text-xs">
+            <span className="text-amber-500">已暂停</span>
+            <span className="text-zinc-500">点击"继续"恢复上传</span>
           </div>
         )}
         {item.status === 'processing' && (
@@ -171,14 +169,27 @@ function UploadRow({ item }: { item: UploadItem }) {
       </td>
 
       {/* 操作 */}
-      <td className="px-4 py-3 align-middle text-right">
-        <button
-          onClick={() => removeItem(item.id)}
-          className="text-xs text-zinc-400 hover:text-red-500 px-2 py-1"
-          title="从队列移除"
-        >
-          ✕
-        </button>
+      <td className="px-4 py-3 align-middle text-right whitespace-nowrap">
+        <div className="flex items-center justify-end gap-1">
+          {/* 重试（仅 failed 状态） */}
+          {item.status === 'failed' && (
+            <button
+              onClick={() => onRetry(item.id)}
+              className="text-xs text-teal-600 dark:text-teal-400 hover:bg-teal-50 dark:hover:bg-teal-950 px-2 py-1 rounded"
+              title="选择本地文件重新上传"
+            >
+              ↻ 重试
+            </button>
+          )}
+          {/* 移除（任何状态） */}
+          <button
+            onClick={() => onRemove(item.id)}
+            className="text-xs text-zinc-400 hover:text-red-500 px-2 py-1 rounded hover:bg-red-50 dark:hover:bg-red-950/30"
+            title="从队列移除"
+          >
+            ✕
+          </button>
+        </div>
       </td>
     </tr>
   )
@@ -189,6 +200,22 @@ export function UploadPage() {
   const items = useUploadStore((s) => s.items)
   const clearDone = useUploadStore((s) => s.clearDone)
   const clearFailed = useUploadStore((s) => s.clearFailed)
+  const retryItem = useUploadStore((s) => s.retryItem)
+  const removeItem = useUploadStore((s) => s.removeItem)
+
+  // 通过事件总线通知 UploadZone 触发 file picker（重试）
+  // 这里用 custom event 解耦（UploadPage 不直接 import UploadZone）
+  const handleRetry = (id: string) => {
+    retryItem(id) // 先把状态置为 waiting
+    // 触发全局事件，让 UploadZone 接住
+    window.dispatchEvent(new CustomEvent('imagehub-retry-item', { detail: { id } }))
+  }
+
+  const handleRemove = (id: string) => {
+    if (window.confirm('从队列移除？正在上传的会取消（已完成的不影响）。')) {
+      removeItem(id)
+    }
+  }
 
   const doneCount = items.filter((i) => i.status === 'done').length
   const failedCount = items.filter((i) => i.status === 'failed').length
@@ -267,7 +294,12 @@ export function UploadPage() {
                 </thead>
                 <tbody>
                   {items.map((item) => (
-                    <UploadRow key={item.id} item={item} />
+                    <UploadRow
+                      key={item.id}
+                      item={item}
+                      onRetry={handleRetry}
+                      onRemove={handleRemove}
+                    />
                   ))}
                 </tbody>
               </table>

@@ -11,11 +11,13 @@ export interface UploadStage {
   payload?: Record<string, any> // e.g. {width, height, tag_count}
 }
 
+export type ItemStatus = 'waiting' | 'uploading' | 'paused' | 'processing' | 'done' | 'failed'
+
 export interface UploadItem {
   id: string // 本地唯一 id（与 asset_id 无关）
   name: string
   size: number
-  status: 'waiting' | 'uploading' | 'processing' | 'done' | 'failed'
+  status: ItemStatus
   // 全局进度 0-100（综合 OBS 60% + 后处理 40%）
   overallProgress: number
   // 阶段：obs 阶段记录 multipart 信息
@@ -25,6 +27,8 @@ export interface UploadItem {
   speed?: number // bytes/s
   // 后端处理阶段（asset_id 有值后开始）
   assetId?: string
+  // 多分片断点续传：暂停时记录 batchId（localStorage mp-resume 也保留）
+  batchId?: string
   // 5 阶段状态
   stages: Record<Stage, UploadStage>
   createdAt: number
@@ -38,8 +42,12 @@ interface UploadState {
   updateItem: (id: string, patch: Partial<UploadItem>) => void
   updateStage: (id: string, stage: Stage, patch: Partial<UploadStage>) => void
   removeItem: (id: string) => void
+  removeItems: (ids: string[]) => void
+  retryItem: (id: string) => void // 标记 failed → waiting（用于 file picker 重新上传）
+  setItems: (items: UploadItem[]) => void // 用于批量重置（重试时替换原 item）
   clearDone: () => void
   clearFailed: () => void
+  clearAll: () => void
   setPanelCollapsed: (v: boolean) => void
 }
 
@@ -87,11 +95,35 @@ export const useUploadStore = create<UploadState>()(
       removeItem: (id) =>
         set((s) => ({ items: s.items.filter((it) => it.id !== id) })),
 
+      removeItems: (ids) =>
+        set((s) => ({ items: s.items.filter((it) => !ids.includes(it.id)) })),
+
+      retryItem: (id) =>
+        set((s) => ({
+          items: s.items.map((it) =>
+            it.id === id
+              ? {
+                  ...it,
+                  status: 'waiting',
+                  errorMessage: undefined,
+                  overallProgress: 0,
+                  stages: initialStages(),
+                  assetId: undefined,
+                  batchId: undefined,
+                }
+              : it,
+          ),
+        })),
+
+      setItems: (items) => set({ items }),
+
       clearDone: () =>
         set((s) => ({ items: s.items.filter((it) => it.status !== 'done') })),
 
       clearFailed: () =>
         set((s) => ({ items: s.items.filter((it) => it.status !== 'failed') })),
+
+      clearAll: () => set({ items: [] }),
 
       setPanelCollapsed: (v) => set({ panelCollapsed: v }),
     }),

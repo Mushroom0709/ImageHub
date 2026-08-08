@@ -10,7 +10,11 @@ import { MobileNav } from '../components/layout/MobileNav'
 export function HomePage() {
   const [refreshKey, setRefreshKey] = useState(0)
   const [showCollect, setShowCollect] = useState(false)
-  const uploadZoneRef = useRef<{ openFiles: () => void; openFolder: () => void } | null>(null)
+  const uploadZoneRef = useRef<{
+    openFiles: () => void
+    openFolder: () => void
+    retryItem: (id: string, cb: (file: File) => void) => void
+  } | null>(null)
 
   const handleUploaded = useCallback(() => {
     setRefreshKey((k) => k + 1)
