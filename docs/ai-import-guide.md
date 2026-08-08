@@ -666,3 +666,182 @@ AI 导入的素材：
 | `/api/tags/tree` | GET | 获取标签分类树（参考标签体系用） |
 
 完整 API 文档见：`docs/API.md`
+
+
+---
+
+## 13. V2 上传模块（2026-08 更新）
+
+针对**大文件 + 断点续传 + 进度可视化**的 V2 上传模块已上线。
+
+### 13.1 三种上传方式对比
+
+| 方式 | 适用场景 | 单文件上限 | 进度可见 |
+|---|---|---|---|
+| **方式 A**（预签名直传） | 中等图片/视频 | 2GB（可配） | 前端 XHR onprogress |
+| **方式 B**（multipart 批量） | 小文件批量 | 单次请求总大小受 web server 限制 | 无（同步阻塞） |
+| **方式 C**（V2 multipart OBS） | **大文件 + 断网恢复 + 进度可视化** | **2GB**（可配） | **OBS 分片 + SSE 后端阶段** |
+
+### 13.2 V2 multipart 上传 API（方式 C）
+
+> 100MB 自动走 multipart 上传（阈值 `UPLOAD_MULTIPART_THRESHOLD`，默认 100MB，可配）。
+> 分片大小默认 8MB（满足 OBS 业务规则：除最后一片外每片 ≥5MB）。
+
+#### Step 1: 初始化（可复用会话，断点续传）
+
+```http
+POST /api/upload/multipart/init
+Authorization: Bearer ***
+Content-Type: application/json
+
+{
+  "batch_id": "可选：已有 batchId 时复用",
+  "file_name": "IMG_0001.ARW",
+  "file_size": 209715200,
+  "content_type": "image/x-sony-arw",
+  "asset_type": "image",
+  "top_category_id": "项目ID（可选）"
+}
+```
+
+**响应：**
+```json
+{
+  "code": 0,
+  "data": {
+    "batch_id": "vs60-178...",
+    "obs_key": "raw/image/2026/08/08/vs60-178...arw",
+    "total_parts": 25,
+    "part_size": 8388608,
+    "uploaded_parts": [],          // 已传分片（断点续传时非空）
+    "status": "uploading",
+    "part_upload_urls": [
+      { "part_number": 1, "url": "https://obs-...?partNumber=1&uploadId=..." },
+      ...
+    ]
+  }
+}
+```
+
+#### Step 2: 直传每个分片到 OBS
+
+```http
+PUT <part_upload_url>   // OBS 预签名 URL
+Content-Type: 不要设置（V2 签名禁忌，否则 403）
+Body: <8MB 二进制>
+```
+
+#### Step 3: 每个分片回执
+
+```http
+POST /api/upload/multipart/part-complete
+Authorization: Bearer ***
+Content-Type: application/json
+
+{
+  "batch_id": "vs60-178...",
+  "part_number": 1,
+  "size": 8388608,
+  "etag": "可选：前端从 XHR ETag header 拿"
+}
+```
+
+#### Step 4: 单分片 URL 重签（断点续传/URL 过期）
+
+```http
+POST /api/upload/multipart/part-url
+Authorization: Bearer ***
+Content-Type: application/json
+
+{
+  "batch_id": "vs60-178...",
+  "part_number": 1
+}
+```
+
+#### Step 5: 合并分片 + 素材入库（异步处理）
+
+```http
+POST /api/upload/multipart/complete
+Authorization: Bearer ***
+Content-Type: application/json
+
+{ "batch_id": "vs60-178..." }
+```
+
+**响应：** 立即返回（不阻塞后端处理）：
+```json
+{ "code": 0, "data": { "asset_ids": ["uuid"], "async_processing": true } }
+```
+
+#### Step 6: SSE 订阅后端处理进度（可选）
+
+```http
+GET /api/upload/events/{asset_id}
+Accept: text/event-stream
+
+event: connected
+data: {"asset_id": "..."}
+
+event: uploaded
+data: uploaded|ts|{"file_name":"...","file_size":209715200}
+
+event: thumbnail
+data: thumbnail|ts|{"status":"processing"}
+
+event: thumbnail
+data: thumbnail|ts|{"status":"done","width":6000,"height":4000}
+
+event: exif
+data: exif|ts|{"status":"processing"}
+
+event: exif
+data: exif|ts|{"status":"done","has_exif":true}
+
+event: ai_tagging
+data: ai_tagging|ts|{"status":"processing"}
+
+event: ai_tagging
+data: ai_tagging|ts|{"status":"done","tag_count":9}
+
+event: done
+data: done|ts|{}
+```
+
+5 个阶段：`uploaded → thumbnail → exif → ai_tagging → done`
+15s 心跳保活（无事件时 `event: ping`）
+
+### 13.3 配置参数（环境变量）
+
+| 变量 | 默认值 | 含义 |
+|---|---|---|
+| `UPLOAD_MAX_FILE_SIZE` | 2147483648 (2GB) | 单文件硬上限 |
+| `UPLOAD_CHUNK_SIZE` | 8388608 (8MB) | 分片大小 |
+| `UPLOAD_MULTIPART_THRESHOLD` | 104857600 (100MB) | 超过此大小走 multipart |
+| `UPLOAD_TMP_DIR` | /data/imagehub-tmp | 物理盘临时目录（vdb1 1T） |
+
+### 13.4 前端 UI（2026-08）
+
+- **悬浮窗**：`右下角小圆按钮`，上传中显示环形进度
+- **独立页**：`/upload` 路由，全屏表格
+  - 每行：文件名/大小/状态/5 阶段进度环/总进度条/操作按钮
+  - failed 项：`↻ 重试`（file picker 选文件复用原 item.id）+ `✕ 移除`
+  - 队列持久化：zustand persist + localStorage（`imagehub-upload-queue`），刷新不丢
+  - TopBar `📤 上传页` 链接 + 活跃任务徽标
+
+### 13.5 端到端验证记录
+
+- **#58 VS 50MB JPG 直传**：0.2s/204MB/s + 9 标签入库
+- **#59 VS 200MB ARW 分片**：25 parts × 8MB init → 25 PUT (83MB/s) → complete → 200MB 入库
+- **#60 VS 1GB MP4 断点续传**：30 parts → 模拟崩溃 → init 复用会话（uploaded_parts[1..30]）→ 99 parts 续传 (84.7MB/s) → complete → 1030.5MB 入库
+
+### 13.6 V2 上传踩坑记录（开发必读）
+
+1. **OBS Multipart 至少 5MB/片**（除最后一片）：SDK 会拒绝
+2. **complete 必须 `obs.model.CompletePart(partNum=, etag=)` 对象**（非 Part、非 dict）：SDK convertor 按属性读取
+3. **part-complete etag 可选**：complete 时从 OBS listParts 取权威值（断网恢复友好）
+4. **预签名 URL 禁忌 Content-Type**：V2 签名签空字符串，带 Content-Type 会 403。前端 XHR 必须 setRequestHeader('Content-Type', '')
+5. **续传 init 必须返回完整 part_upload_urls**：否则前端无法上传剩余分片（#60 修）
+6. **BackgroundTasks 不支持 async def**：必须 asyncio.create_task 创建协程（#54 SSE 改造遗留 bug）
+7. **PIL DecompressionBomb**：阈值 89M 像素会拒绝大图，需 main.py 启动时设置 Image.MAX_IMAGE_PIXELS = 200M
+
