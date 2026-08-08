@@ -1,5 +1,9 @@
 """OBS 服务"""
+import os
+
 from obs import ObsClient
+from obs.model import CompleteMultipartUploadRequest, CompletePart
+
 from app.core.config import settings
 
 
@@ -63,6 +67,101 @@ class ObsService:
             headers=headers,
         )
         return result["signedUrl"]
+
+    # ---------- 分片上传（Multipart Upload） ----------
+
+    def initiate_multipart_upload(self, key: str, content_type: str = "") -> dict:
+        """初始化分片上传，返回 upload_id"""
+        full_key = self._full_key(key)
+        kwargs = {"contentType": content_type} if content_type else {}
+        resp = self.client.initiateMultipartUpload(self.bucket, full_key, **kwargs)
+        if resp.status >= 300:
+            raise RuntimeError(
+                f"initiateMultipartUpload 失败: {resp.errorCode} {resp.errorMessage}"
+            )
+        return {"upload_id": resp.body.uploadId, "obs_key": key}
+
+    def upload_part(
+        self,
+        key: str,
+        upload_id: str,
+        part_number: int,
+        data: bytes | None = None,
+        file_path: str | None = None,
+        part_size: int | None = None,
+        offset: int = 0,
+    ) -> dict:
+        """上传单个分片，返回 etag。
+
+        两种传数方式：
+        - data: bytes 内存数据
+        - file_path: 本地文件路径（配合 offset/part_size 分片读取）
+        """
+        full_key = self._full_key(key)
+        if file_path:
+            size = part_size or (os.path.getsize(file_path) - offset)
+            resp = self.client.uploadPart(
+                self.bucket, full_key,
+                partNumber=part_number, uploadId=upload_id,
+                object=file_path, isFile=True,
+                partSize=size, offset=offset,
+            )
+        elif data is not None:
+            resp = self.client.uploadPart(
+                self.bucket, full_key,
+                partNumber=part_number, uploadId=upload_id,
+                content=data,
+            )
+        else:
+            raise ValueError("upload_part 需要 data 或 file_path 之一")
+        if resp.status >= 300:
+            raise RuntimeError(
+                f"uploadPart 失败: {resp.errorCode} {resp.errorMessage}"
+            )
+        return {"part_number": part_number, "etag": resp.body.etag}
+
+    def complete_multipart_upload(self, key: str, upload_id: str, parts: list[dict]) -> str:
+        """合并分片，返回最终对象 etag。
+
+        parts: [{'part_number': 1, 'etag': '"..."'}]。
+        注意：SDK 内部用 CompletePart(partNum=, etag=) 对象序列化。
+        """
+        full_key = self._full_key(key)
+        part_objs = [
+            CompletePart(partNum=p["part_number"], etag=p["etag"])
+            for p in parts
+        ]
+        request = CompleteMultipartUploadRequest(parts=part_objs)
+        resp = self.client.completeMultipartUpload(
+            self.bucket, full_key, upload_id, request
+        )
+        if resp.status >= 300:
+            raise RuntimeError(
+                f"completeMultipartUpload 失败: {resp.errorCode} {resp.errorMessage}"
+            )
+        return resp.body.etag
+
+    def abort_multipart_upload(self, key: str, upload_id: str) -> bool:
+        """取消分片上传，清理 OBS 侧已传分片"""
+        full_key = self._full_key(key)
+        resp = self.client.abortMultipartUpload(self.bucket, full_key, upload_id)
+        return resp.status < 300
+
+    def list_uploaded_parts(self, key: str, upload_id: str) -> list[dict]:
+        """列出已上传分片（断点续传时跳过已传部分）"""
+        full_key = self._full_key(key)
+        resp = self.client.listParts(self.bucket, full_key, upload_id)
+        if resp.status >= 300:
+            return []
+        parts = getattr(resp.body, "parts", None) or []
+        return [
+            {
+                "part_number": int(p.partNumber),
+                "etag": p.etag,
+                "size": int(p.size or 0),
+            }
+            for p in parts
+        ]
 
 
 # 全局单例
