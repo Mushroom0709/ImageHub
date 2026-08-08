@@ -8,6 +8,10 @@ from PIL import Image, ImageOps
 from app.core.config import settings
 from app.services.obs_service import obs_service
 
+# 提升 PIL DecompressionBomb 阈值到 2 亿像素（默认 8947 万 ≈ 9400 万）
+# 上限：90K x 22K 大尺寸图（如天文、卫星、艺术摄影）会被保护性拒绝解码
+Image.MAX_IMAGE_PIXELS = 200_000_000
+
 SIZES = {
     "small": 300,
     "medium": 1200,
