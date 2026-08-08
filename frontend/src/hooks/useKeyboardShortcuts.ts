@@ -48,21 +48,25 @@ export function useKeyboardShortcuts(onDelete: (ids: string[]) => void) {
         return
       }
 
-      // 数字键：1-5 星级，6-0 旗标
+      // 数字键：1-5 设星级，6-9 设旗标，0 清除星标+旗标
       if (/^[0-9]$/.test(e.key) && !e.ctrlKey && !e.metaKey) {
         const num = parseInt(e.key, 10)
-        // 获取当前活动素材（Lightbox 或最近点击）
         const activeId = window.__imagehubActiveAssetId
         if (activeId) {
           if (num >= 1 && num <= 5) {
             e.preventDefault()
             await assetApi.update(activeId, { star_level: num })
             window.dispatchEvent(new CustomEvent('imagehub:asset-updated', { detail: { id: activeId } }))
-          } else if (num >= 6) {
+          } else if (num >= 6 && num <= 9) {
             e.preventDefault()
-            // 6=旗1红,7=旗2橙,8=旗3黄,9=旗4绿,0=旗5蓝
-            const flagLevel = num === 0 ? 5 : num - 5
+            // 6=旗1红, 7=旗2橙, 8=旗3黄, 9=旗4绿
+            const flagLevel = num - 5
             await assetApi.update(activeId, { flag_level: flagLevel })
+            window.dispatchEvent(new CustomEvent('imagehub:asset-updated', { detail: { id: activeId } }))
+          } else if (num === 0) {
+            e.preventDefault()
+            // 0 = 清除星标 + 清除旗标
+            await assetApi.update(activeId, { star_level: 0, flag_level: 0 })
             window.dispatchEvent(new CustomEvent('imagehub:asset-updated', { detail: { id: activeId } }))
           }
         }

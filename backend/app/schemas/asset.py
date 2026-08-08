@@ -59,6 +59,7 @@ class Asset(AssetBase):
     # 缩略图 URL（由后端填充预签名 URL）
     thumb_small: str = ""
     thumb_medium: str = ""
+    file_url: str = ""  # raw 原图/原视频预签名 URL
     thumb_raw: str = ""
 
     class Config:

@@ -50,6 +50,20 @@ export function AssetCard({ asset, onClick, selectMode, onDelete }: Props) {
     }
   }
 
+  const handleClearRating = async (e: React.MouseEvent) => {
+    e.stopPropagation()
+    const prevStar = starLevel
+    const prevFlag = flagLevel
+    setStarLevel(0)
+    setFlagLevel(0)
+    try {
+      await assetApi.update(asset.id, { star_level: 0, flag_level: 0 })
+    } catch {
+      setStarLevel(prevStar)
+      setFlagLevel(prevFlag)
+    }
+  }
+
   const handleDelete = (e: React.MouseEvent) => {
     e.stopPropagation()
     if (onDelete) onDelete(asset.id)
@@ -136,10 +150,10 @@ export function AssetCard({ asset, onClick, selectMode, onDelete }: Props) {
             ))}
           </div>
 
-          {/* 底部：旗标 + 删除 + 信息 */}
+          {/* 底部：旗标 + 清除 + 删除 + 信息 */}
           <div className="flex items-center justify-between">
-            {/* 旗标 5 色 */}
-            <div className="flex gap-1">
+            {/* 旗标 4 色 + 清除 */}
+            <div className="flex gap-1 items-center">
               {FLAG_COLORS.map((f) => (
                 <button
                   key={f.level}
@@ -151,6 +165,13 @@ export function AssetCard({ asset, onClick, selectMode, onDelete }: Props) {
                   title={f.name}
                 />
               ))}
+              <button
+                onClick={handleClearRating}
+                className="w-4 h-4 rounded-full bg-zinc-700 hover:bg-zinc-600 text-white/80 hover:text-white text-[10px] flex items-center justify-center transition-transform hover:scale-125"
+                title="清除星标和旗标 (0)"
+              >
+                ✕
+              </button>
             </div>
 
             {/* 操作按钮 */}

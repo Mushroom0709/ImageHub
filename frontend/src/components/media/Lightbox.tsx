@@ -130,12 +130,20 @@ export function Lightbox({ asset, onClose, onChanged }: Props) {
 
   return (
     <div className="fixed inset-0 z-50 bg-black/95 flex" onClick={onClose}>
-      {/* 图片区域 */}
+      {/* 媒体区域（图/视频） */}
       <div
         className="flex-1 flex items-center justify-center overflow-hidden relative"
         onClick={(e) => e.stopPropagation()}
       >
-        {asset.thumb_medium ? (
+        {asset.asset_type === 'video' ? (
+          <video
+            src={asset.thumb_raw || ''}
+            controls
+            autoPlay
+            className="max-w-full max-h-full"
+            poster={asset.thumb_medium}
+          />
+        ) : asset.thumb_medium ? (
           <img
             src={asset.thumb_medium}
             alt={asset.title || asset.file_name}
@@ -145,7 +153,7 @@ export function Lightbox({ asset, onClose, onChanged }: Props) {
             onLoad={() => setLoaded(true)}
           />
         ) : (
-          <div className="text-zinc-500">图片加载中...</div>
+          <div className="text-zinc-500">加载中...</div>
         )}
 
         {/* 关闭按钮 */}
