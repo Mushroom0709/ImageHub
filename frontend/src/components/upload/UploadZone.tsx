@@ -8,6 +8,10 @@ interface UploadItem {
   size: number
   progress: number // 0-100, -1=失败
   status: 'waiting' | 'uploading' | 'processing' | 'done' | 'failed'
+  multipart?: boolean
+  partNumber?: number
+  totalParts?: number
+  speed?: number // bytes/s
 }
 
 interface Props {
@@ -28,6 +32,13 @@ function formatSize(bytes: number): string {
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
   if (bytes < 1024 * 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)} MB`
   return `${(bytes / 1024 / 1024 / 1024).toFixed(2)} GB`
+}
+
+function formatSpeed(bytesPerSec: number): string {
+  if (!bytesPerSec || bytesPerSec <= 0) return ''
+  if (bytesPerSec < 1024) return `${Math.round(bytesPerSec)} B/s`
+  if (bytesPerSec < 1024 * 1024) return `${(bytesPerSec / 1024).toFixed(0)} KB/s`
+  return `${(bytesPerSec / 1024 / 1024).toFixed(1)} MB/s`
 }
 
 export const UploadZone = forwardRef<{ openFiles: () => void; openFolder: () => void }, Props>(
@@ -69,9 +80,20 @@ export const UploadZone = forwardRef<{ openFiles: () => void; openFolder: () => 
           await uploadFiles(supported, {
             topCategoryId: currentTopCategoryId,
             concurrency: 3,
-            onFileProgress: (i, p) => {
+            onFileProgress: (i, p, extra) => {
               setItems((prev) =>
-                prev.map((item, idx) => (idx === i ? { ...item, progress: p } : item)),
+                prev.map((item, idx) =>
+                  idx === i
+                    ? {
+                        ...item,
+                        progress: p,
+                        multipart: extra?.multipart,
+                        partNumber: extra?.partNumber,
+                        totalParts: extra?.totalParts,
+                        speed: extra?.speed,
+                      }
+                    : item,
+                ),
               )
             },
             onFileStatus: (i, status) => {
@@ -230,15 +252,31 @@ export const UploadZone = forwardRef<{ openFiles: () => void; openFolder: () => 
                       {item.name}
                     </span>
                     <span className="text-xs text-zinc-400 w-16 text-right">
-                      {item.status === 'uploading'
-                        ? `${item.progress}%`
-                        : item.status === 'done'
-                          ? formatSize(item.size)
-                          : item.status === 'failed'
-                            ? '失败'
-                            : item.status === 'processing'
-                              ? '处理中'
-                              : '等待中'}
+                      {item.status === 'uploading' ? (
+                        item.multipart ? (
+                          // 分片上传：part 进度 + 网速
+                          <span className="flex flex-col items-end leading-tight">
+                            <span>
+                              {item.progress}%{item.speed ? ` · ${formatSpeed(item.speed)}` : ''}
+                            </span>
+                            {item.partNumber && item.totalParts && (
+                              <span className="text-[10px] text-teal-500">
+                                part {item.partNumber}/{item.totalParts}
+                              </span>
+                            )}
+                          </span>
+                        ) : (
+                          `${item.progress}%`
+                        )
+                      ) : item.status === 'done' ? (
+                        formatSize(item.size)
+                      ) : item.status === 'failed' ? (
+                        '失败'
+                      ) : item.status === 'processing' ? (
+                        '处理中'
+                      ) : (
+                        '等待中'
+                      )}
                     </span>
                   </div>
                   {/* 单文件进度条 */}

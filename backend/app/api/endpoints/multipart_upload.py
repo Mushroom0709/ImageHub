@@ -169,10 +169,31 @@ def complete_multipart(data: BatchRequest, db: Session = Depends(get_db)):
             detail=f"分片不完整: 已传 {len(parts)}/{record.total_parts}",
         )
 
+    # 从 OBS 侧拉取权威分片列表（含 etag，断点续传/前端丢失记录都能恢复）
+    # 前端回执的 uploaded_parts 仅作进度参考，etag 以 OBS 为准
+    try:
+        obs_parts = obs_service.list_uploaded_parts(
+            record.obs_key, record.obs_upload_id
+        )
+        if len(obs_parts) != record.total_parts:
+            raise HTTPException(
+                status_code=400,
+                detail=f"OBS 分片不完整: {len(obs_parts)}/{record.total_parts}",
+            )
+        # 按 part_number 排序，保证合并顺序
+        obs_parts.sort(key=lambda p: p["part_number"])
+    except HTTPException:
+        raise
+    except Exception as e:
+        record.status = "failed"
+        record.error_message = f"查询分片失败: {e}"
+        db.commit()
+        raise HTTPException(status_code=500, detail=f"查询分片失败: {e}")
+
     # OBS 合并分片
     try:
         obs_service.complete_multipart_upload(
-            record.obs_key, record.obs_upload_id, parts
+            record.obs_key, record.obs_upload_id, obs_parts
         )
     except Exception as e:
         record.status = "failed"

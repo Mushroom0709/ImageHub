@@ -1,5 +1,7 @@
 /** 上传工具：预签名 URL 直传 OBS */
 
+import { multipartUpload, shouldMultipart } from './multipartUpload'
+
 interface Credential {
   file_index: number
   upload_url: string
@@ -107,13 +109,17 @@ export async function bulkImport(files: File[], onProgress?: (done: number, tota
   return data.data
 }
 
-/** 一站式上传：凭证 → 直传 → 完成回调 */
+/** 一站式上传：凭证 → 直传 → 完成回调（>100MB 自动走分片上传） */
 export async function uploadFiles(
   files: File[],
   options?: {
     topCategoryId?: string | null
     concurrency?: number
-    onFileProgress?: (index: number, percent: number) => void
+    onFileProgress?: (
+      index: number,
+      percent: number,
+      extra?: { multipart?: boolean; partNumber?: number; totalParts?: number; speed?: number },
+    ) => void
     onFileStatus?: (index: number, status: 'uploading' | 'processing' | 'done' | 'failed') => void
   },
 ): Promise<string[]> {
@@ -131,20 +137,30 @@ export async function uploadFiles(
     }
   })
 
-  const token = localStorage.getItem('token')
-  const credResp = await fetch('/api/upload/credentials', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    },
-    body: JSON.stringify({ files: fileInfos, top_category_id: topCategoryId || undefined }),
-  })
-  const credData = await credResp.json()
-  if (credData.code !== 0) throw new Error(credData.message || '获取上传凭证失败')
-  const { upload_id, credentials } = credData.data
-
+  // 分两类：小文件走预签名直传（批量凭证），大文件走分片上传
+  const smallIndices = files.map((f, i) => (shouldMultipart(f) ? -1 : i)).filter((i) => i >= 0)
   const assetIds: string[] = []
+  const token = localStorage.getItem('token')
+  let credUploadId = ''
+
+  // 小文件凭证（一次申请）
+  let credentials: Credential[] = []
+  if (smallIndices.length > 0) {
+    const smallInfos = smallIndices.map((i) => fileInfos[i])
+    const credResp = await fetch('/api/upload/credentials', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: JSON.stringify({ files: smallInfos, top_category_id: topCategoryId || undefined }),
+    })
+    const credData = await credResp.json()
+    if (credData.code !== 0) throw new Error(credData.message || '获取上传凭证失败')
+    credentials = credData.data.credentials
+    credUploadId = credData.data.upload_id
+  }
+
   let current = 0
   const total = files.length
 
@@ -152,35 +168,54 @@ export async function uploadFiles(
     while (current < total) {
       const i = current++
       const file = files[i]
-      const cred = credentials[i]
-      if (!cred) continue
+      if (!file) continue
 
       onFileStatus?.(i, 'uploading')
       try {
-        await uploadToObs(cred.upload_url, file, (p) => onFileProgress?.(i, p))
-        onFileStatus?.(i, 'processing')
-        const resp = await fetch('/api/upload/complete', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            ...(token ? { Authorization: `Bearer ${token}` } : {}),
-          },
-          body: JSON.stringify({
-            upload_id,
-            top_category_id: topCategoryId || undefined,
-            files: [
-              {
-                file_index: i,
-                obs_key: cred.obs_key,
-                file_name: file.name,
-                file_size: file.size,
-              },
-            ],
-          }),
-        })
-        const data = await resp.json()
-        if (data.code !== 0) throw new Error(data.message || '处理失败')
-        assetIds.push(...data.data.asset_ids)
+        if (shouldMultipart(file)) {
+          // 大文件：分片上传（自动断点续传）
+          const assetId = await multipartUpload(file, {
+            topCategoryId,
+            onProgress: (p) => {
+              onFileProgress?.(i, p.percent, {
+                multipart: true,
+                partNumber: p.partNumber,
+                totalParts: p.totalParts,
+                speed: p.speed,
+              })
+            },
+          })
+          if (assetId) assetIds.push(assetId)
+        } else {
+          // 小文件：直传 OBS
+          const smallIdx = smallIndices.indexOf(i)
+          const cred = credentials[smallIdx]
+          if (!cred) throw new Error('缺少上传凭证')
+          await uploadToObs(cred.upload_url, file, (p) => onFileProgress?.(i, p))
+          onFileStatus?.(i, 'processing')
+          const resp = await fetch('/api/upload/complete', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              ...(token ? { Authorization: `Bearer ${token}` } : {}),
+            },
+            body: JSON.stringify({
+              upload_id: credUploadId,
+              top_category_id: topCategoryId || undefined,
+              files: [
+                {
+                  file_index: i,
+                  obs_key: cred.obs_key,
+                  file_name: file.name,
+                  file_size: file.size,
+                },
+              ],
+            }),
+          })
+          const data = await resp.json()
+          if (data.code !== 0) throw new Error(data.message || '处理失败')
+          assetIds.push(...data.data.asset_ids)
+        }
         onFileStatus?.(i, 'done')
       } catch (err) {
         onFileProgress?.(i, -1)
