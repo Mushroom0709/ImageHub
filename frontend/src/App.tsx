@@ -3,6 +3,7 @@ import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-route
 import { HomePage } from './pages/HomePage'
 import { LoginPage } from './pages/LoginPage'
 import { ReviewPage } from './pages/ReviewPage'
+import { UploadPage } from './pages/UploadPage'
 import { useUIStore } from './stores/uiStore'
 
 /** 路由守卫：未登录跳转登录页 */
@@ -39,6 +40,14 @@ export default function App() {
           element={
             <RequireAuth>
               <ReviewPage />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/upload"
+          element={
+            <RequireAuth>
+              <UploadPage />
             </RequireAuth>
           }
         />

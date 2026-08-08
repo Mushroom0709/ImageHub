@@ -1,18 +1,8 @@
-import { forwardRef, useImperativeHandle, useRef, useState, useCallback } from 'react'
+import { forwardRef, useImperativeHandle, useRef, useState, useCallback, useEffect } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { uploadFiles } from '../../lib/upload'
 import { useUIStore } from '../../stores/uiStore'
-
-interface UploadItem {
-  id: string
-  name: string
-  size: number
-  progress: number // 0-100, -1=失败
-  status: 'waiting' | 'uploading' | 'processing' | 'done' | 'failed'
-  multipart?: boolean
-  partNumber?: number
-  totalParts?: number
-  speed?: number // bytes/s
-}
+import { useUploadStore, newUploadItem } from '../../stores/uploadStore'
 
 interface Props {
   onUploaded: () => void
@@ -41,20 +31,109 @@ function formatSpeed(bytesPerSec: number): string {
   return `${(bytesPerSec / 1024 / 1024).toFixed(1)} MB/s`
 }
 
+// 模块级单例：跟踪正在订阅 SSE 的 assetId（避免 useEffect 重复订阅）
+const activeSSESubs = new Set<string>()
+
 export const UploadZone = forwardRef<{ openFiles: () => void; openFolder: () => void }, Props>(
   function UploadZone({ onUploaded }, ref) {
+    const navigate = useNavigate()
     const [dragging, setDragging] = useState(false)
-    const [items, setItems] = useState<UploadItem[]>([])
-    const [panelCollapsed, setPanelCollapsed] = useState(false)
-    const [uploading, setUploading] = useState(false)
     const fileInputRef = useRef<HTMLInputElement>(null)
     const folderInputRef = useRef<HTMLInputElement>(null)
     const currentTopCategoryId = useUIStore((s: any) => s.currentTopCategoryId)
+
+    // 来自 store（持久化）
+    const items = useUploadStore((s) => s.items)
+    const panelCollapsed = useUploadStore((s) => s.panelCollapsed)
+    const setPanelCollapsed = useUploadStore((s) => s.setPanelCollapsed)
+    const addItems = useUploadStore((s) => s.addItems)
+    const updateItem = useUploadStore((s) => s.updateItem)
+    const updateStage = useUploadStore((s) => s.updateStage)
 
     useImperativeHandle(ref, () => ({
       openFiles: () => fileInputRef.current?.click(),
       openFolder: () => folderInputRef.current?.click(),
     }))
+
+    // 后端 SSE 阶段订阅：每个 uploading/processing 的 item 订阅一次
+    useEffect(() => {
+      const sources: EventSource[] = []
+      for (const item of items) {
+        const assetId = item.assetId
+        if (!assetId || item.status !== 'processing') continue
+        // 模块级单例去重（React strict mode 会双跑 effect + items 变化时重跑）
+        if (activeSSESubs.has(assetId)) continue
+        activeSSESubs.add(assetId)
+
+        const url = `/api/upload/events/${assetId}`
+        const es = new EventSource(url)
+        sources.push(es)
+
+        const handleEvent = (eventName: string, payloadStr: string) => {
+          // payload 格式: "{stage}|{ts}|{payload_dict}"
+          const parts = payloadStr.split('|')
+          let payload: Record<string, any> = {}
+          if (parts[2]) {
+            try {
+              payload = JSON.parse(parts[2].replace(/'/g, '"'))
+            } catch {
+              payload = {}
+            }
+          }
+
+          if (eventName === 'uploaded') {
+            updateStage(item.id, 'obs', { status: 'done', progress: 100 })
+            updateItem(item.id, { overallProgress: 60, status: 'processing' })
+          } else if (eventName === 'thumbnail') {
+            updateStage(item.id, 'thumbnail', {
+              status: payload.status === 'done' ? 'done' : payload.status === 'failed' ? 'failed' : 'processing',
+            })
+            if (payload.status === 'done') {
+              updateStage(item.id, 'thumbnail', { status: 'done', progress: 100, payload })
+              updateItem(item.id, { overallProgress: 80 })
+            }
+          } else if (eventName === 'exif') {
+            updateStage(item.id, 'exif', {
+              status: payload.status === 'done' ? 'done' : payload.status === 'failed' ? 'failed' : 'processing',
+              payload,
+            })
+            if (payload.status === 'done') {
+              updateStage(item.id, 'exif', { status: 'done', progress: 100 })
+              updateItem(item.id, { overallProgress: 88 })
+            }
+          } else if (eventName === 'ai_tagging') {
+            updateStage(item.id, 'ai_tagging', {
+              status: payload.status === 'done' ? 'done' : payload.status === 'failed' ? 'failed' : 'processing',
+              payload,
+            })
+            if (payload.status === 'done') {
+              updateStage(item.id, 'ai_tagging', { status: 'done', progress: 100 })
+              updateItem(item.id, { overallProgress: 95 })
+            }
+          } else if (eventName === 'done') {
+            // 后端全部处理完（即便 ai failed 也 done）
+            updateStage(item.id, 'phash', { status: 'pending' }) // pHash 未实装，保持 pending
+            updateItem(item.id, { status: 'done', overallProgress: 100 })
+            onUploaded()
+            activeSSESubs.delete(assetId)
+            es.close()
+          } else if (eventName === 'failed') {
+            updateItem(item.id, { status: 'failed', overallProgress: item.overallProgress, errorMessage: payload.error })
+            activeSSESubs.delete(assetId)
+            es.close()
+          }
+        }
+
+        es.addEventListener('connected', () => {})
+        es.addEventListener('uploaded', (e) => handleEvent('uploaded', (e as MessageEvent).data))
+        es.addEventListener('thumbnail', (e) => handleEvent('thumbnail', (e as MessageEvent).data))
+        es.addEventListener('exif', (e) => handleEvent('exif', (e as MessageEvent).data))
+        es.addEventListener('ai_tagging', (e) => handleEvent('ai_tagging', (e as MessageEvent).data))
+        es.addEventListener('done', (e) => handleEvent('done', (e as MessageEvent).data))
+        es.addEventListener('failed', (e) => handleEvent('failed', (e as MessageEvent).data))
+      }
+      return () => sources.forEach((s) => s.close())
+    }, [items, updateItem, updateStage, onUploaded])
 
     // 开始上传
     const startUpload = useCallback(
@@ -65,55 +144,51 @@ export const UploadZone = forwardRef<{ openFiles: () => void; openFolder: () => 
           return
         }
 
-        const newItems: UploadItem[] = supported.map((f, i) => ({
-          id: `${Date.now()}-${i}`,
-          name: f.webkitRelativePath || f.name,
-          size: f.size,
-          progress: 0,
-          status: 'waiting',
-        }))
-        setItems(newItems)
+        // 创建 store items
+        const newItems = supported.map((f) =>
+          newUploadItem(f.webkitRelativePath || f.name, f.size),
+        )
+        addItems(newItems)
         setPanelCollapsed(false)
-        setUploading(true)
 
         try {
+          // 构造 server item 索引映射：files → item.id
           await uploadFiles(supported, {
             topCategoryId: currentTopCategoryId,
             concurrency: 3,
             onFileProgress: (i, p, extra) => {
-              setItems((prev) =>
-                prev.map((item, idx) =>
-                  idx === i
-                    ? {
-                        ...item,
-                        progress: p,
-                        multipart: extra?.multipart,
-                        partNumber: extra?.partNumber,
-                        totalParts: extra?.totalParts,
-                        speed: extra?.speed,
-                      }
-                    : item,
-                ),
-              )
+              const itemId = newItems[i].id
+              updateItem(itemId, {
+                overallProgress: Math.min(60, Math.round(p * 0.6)), // OBS 阶段上限 60%
+                multipart: extra?.multipart,
+                partNumber: extra?.partNumber,
+                totalParts: extra?.totalParts,
+                speed: extra?.speed,
+              })
+              updateStage(itemId, 'obs', { progress: p, status: 'processing' })
             },
-            onFileStatus: (i, status) => {
-              setItems((prev) =>
-                prev.map((item, idx) =>
-                  idx === i
-                    ? { ...item, status, progress: status === 'done' ? 100 : item.progress }
-                    : item,
-                ),
-              )
+            onFileStatus: (i, status, assetId) => {
+              const itemId = newItems[i].id
+              if (status === 'uploading') {
+                updateItem(itemId, { status: 'uploading' })
+              } else if (status === 'processing') {
+                updateItem(itemId, { status: 'processing', assetId })
+              } else if (status === 'done') {
+                updateItem(itemId, { status: 'done', overallProgress: 100 })
+                updateStage(itemId, 'obs', { status: 'done', progress: 100 })
+              } else if (status === 'failed') {
+                updateItem(itemId, { status: 'failed' })
+              }
             },
           })
+
+          // 通知父级（让首页刷新素材列表）
           onUploaded()
         } catch (err) {
           console.error('上传失败', err)
-        } finally {
-          setUploading(false)
         }
       },
-      [currentTopCategoryId, onUploaded],
+      [currentTopCategoryId, onUploaded, addItems, updateItem, updateStage, setPanelCollapsed],
     )
 
     // 拖拽
@@ -163,10 +238,13 @@ export const UploadZone = forwardRef<{ openFiles: () => void; openFolder: () => 
     const totalSize = items.reduce((s, i) => s + i.size, 0)
     const uploadedSize = items.reduce((s, i) => {
       if (i.status === 'done') return s + i.size
-      if (i.status === 'uploading' && i.progress > 0) return s + (i.size * i.progress) / 100
+      if (i.status === 'uploading' && i.overallProgress > 0) return s + (i.size * i.overallProgress) / 100
+      if (i.status === 'processing') return s + i.size * 0.6
       return s
     }, 0)
     const totalPercent = totalSize > 0 ? Math.round((uploadedSize / totalSize) * 100) : 0
+
+    const uploading = items.some((i) => i.status === 'uploading')
 
     return (
       <>
@@ -188,7 +266,7 @@ export const UploadZone = forwardRef<{ openFiles: () => void; openFolder: () => 
 
         {/* 上传进度面板 */}
         {items.length > 0 && !panelCollapsed && (
-          <div className="fixed bottom-4 right-4 w-96 bg-white dark:bg-zinc-900 rounded-xl shadow-2xl border border-zinc-200 dark:border-zinc-800 z-30 overflow-hidden">
+          <div className="fixed bottom-4 right-4 w-[420px] bg-white dark:bg-zinc-900 rounded-xl shadow-2xl border border-zinc-200 dark:border-zinc-800 z-30 overflow-hidden">
             <div className="px-4 py-3 border-b border-zinc-200 dark:border-zinc-800 flex items-center justify-between">
               <div>
                 <span className="font-medium text-sm">
@@ -203,9 +281,14 @@ export const UploadZone = forwardRef<{ openFiles: () => void; openFolder: () => 
                 </span>
               </div>
               <div className="flex items-center gap-2">
-                {failCount > 0 && (
-                  <span className="text-xs text-red-500">{failCount} 失败</span>
-                )}
+                {failCount > 0 && <span className="text-xs text-red-500">{failCount} 失败</span>}
+                <button
+                  onClick={() => navigate('/upload')}
+                  className="text-zinc-400 hover:text-teal-500 text-xs px-2"
+                  title="打开完整上传页"
+                >
+                  ↗ 详情
+                </button>
                 <button
                   onClick={() => setPanelCollapsed(true)}
                   className="text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300 text-sm w-5 h-5 flex items-center justify-center rounded hover:bg-zinc-100 dark:hover:bg-zinc-800"
@@ -248,16 +331,14 @@ export const UploadZone = forwardRef<{ openFiles: () => void; openFolder: () => 
                             ? '⚙'
                             : '↻'}
                     </span>
-                    <span className="flex-1 truncate text-zinc-700 dark:text-zinc-300">
-                      {item.name}
-                    </span>
-                    <span className="text-xs text-zinc-400 w-16 text-right">
+                    <span className="flex-1 truncate text-zinc-700 dark:text-zinc-300">{item.name}</span>
+                    <span className="text-xs text-zinc-400 w-20 text-right">
                       {item.status === 'uploading' ? (
                         item.multipart ? (
-                          // 分片上传：part 进度 + 网速
                           <span className="flex flex-col items-end leading-tight">
                             <span>
-                              {item.progress}%{item.speed ? ` · ${formatSpeed(item.speed)}` : ''}
+                              {Math.round(item.overallProgress)}%
+                              {item.speed ? ` · ${formatSpeed(item.speed)}` : ''}
                             </span>
                             {item.partNumber && item.totalParts && (
                               <span className="text-[10px] text-teal-500">
@@ -266,26 +347,44 @@ export const UploadZone = forwardRef<{ openFiles: () => void; openFolder: () => 
                             )}
                           </span>
                         ) : (
-                          `${item.progress}%`
+                          `${Math.round(item.overallProgress)}%`
                         )
                       ) : item.status === 'done' ? (
                         formatSize(item.size)
                       ) : item.status === 'failed' ? (
                         '失败'
                       ) : item.status === 'processing' ? (
-                        '处理中'
+                        '后端处理'
                       ) : (
                         '等待中'
                       )}
                     </span>
                   </div>
-                  {/* 单文件进度条 */}
                   {item.status !== 'done' && item.status !== 'processing' && item.status !== 'failed' && (
                     <div className="h-0.5 bg-zinc-100 dark:bg-zinc-800 mt-1.5 ml-6">
                       <div
                         className="h-full bg-teal-400 transition-all duration-200"
-                        style={{ width: `${Math.max(0, item.progress)}%` }}
+                        style={{ width: `${Math.max(0, item.overallProgress)}%` }}
                       />
+                    </div>
+                  )}
+                  {item.status === 'processing' && (
+                    // 处理阶段：缩略图/EXIF/AI 打标小点指示
+                    <div className="flex items-center gap-1 ml-6 mt-1">
+                      {(['thumbnail', 'exif', 'ai_tagging'] as const).map((stage) => {
+                        const s = item.stages[stage]
+                        const color =
+                          s.status === 'done'
+                            ? 'bg-teal-500'
+                            : s.status === 'processing'
+                              ? 'bg-teal-400 animate-pulse'
+                              : s.status === 'failed'
+                                ? 'bg-red-500'
+                                : 'bg-zinc-300 dark:bg-zinc-700'
+                        return (
+                          <span key={stage} className={`w-1.5 h-1.5 rounded-full ${color}`} />
+                        )
+                      })}
                     </div>
                   )}
                 </div>
@@ -302,17 +401,9 @@ export const UploadZone = forwardRef<{ openFiles: () => void; openFolder: () => 
             title={`上传进度 (${doneCount}/${items.length})`}
           >
             {uploading ? (
-              // 上传中：环形进度
               <div className="relative w-8 h-8">
                 <svg className="w-8 h-8 -rotate-90" viewBox="0 0 32 32">
-                  <circle
-                    cx="16"
-                    cy="16"
-                    r="14"
-                    fill="none"
-                    stroke="rgba(255,255,255,0.25)"
-                    strokeWidth="3"
-                  />
+                  <circle cx="16" cy="16" r="14" fill="none" stroke="rgba(255,255,255,0.25)" strokeWidth="3" />
                   <circle
                     cx="16"
                     cy="16"
@@ -332,13 +423,11 @@ export const UploadZone = forwardRef<{ openFiles: () => void; openFolder: () => 
             ) : (
               <div className="relative">
                 <span className="text-lg">📥</span>
-                {/* 角标：完成数 */}
                 {doneCount > 0 && (
                   <span className="absolute -top-1 -right-2 w-4 h-4 bg-green-500 text-white text-[10px] rounded-full flex items-center justify-center font-medium">
                     {doneCount > 9 ? '9+' : doneCount}
                   </span>
                 )}
-                {/* 角标：失败数 */}
                 {failCount > 0 && (
                   <span className="absolute -bottom-1 -right-2 w-4 h-4 bg-red-500 text-white text-[10px] rounded-full flex items-center justify-center font-medium">
                     {failCount > 9 ? '!' : failCount}

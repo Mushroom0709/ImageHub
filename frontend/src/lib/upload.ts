@@ -120,7 +120,7 @@ export async function uploadFiles(
       percent: number,
       extra?: { multipart?: boolean; partNumber?: number; totalParts?: number; speed?: number },
     ) => void
-    onFileStatus?: (index: number, status: 'uploading' | 'processing' | 'done' | 'failed') => void
+    onFileStatus?: (index: number, status: 'uploading' | 'processing' | 'done' | 'failed', assetId?: string) => void
   },
 ): Promise<string[]> {
   const { topCategoryId = null, concurrency = 3, onFileProgress, onFileStatus } = options || {}
@@ -185,7 +185,10 @@ export async function uploadFiles(
               })
             },
           })
-          if (assetId) assetIds.push(assetId)
+          if (assetId) {
+            assetIds.push(assetId)
+            onFileStatus?.(i, 'processing', assetId)
+          }
         } else {
           // 小文件：直传 OBS
           const smallIdx = smallIndices.indexOf(i)
@@ -214,7 +217,9 @@ export async function uploadFiles(
           })
           const data = await resp.json()
           if (data.code !== 0) throw new Error(data.message || '处理失败')
-          assetIds.push(...data.data.asset_ids)
+          const ids = data.data.asset_ids as string[]
+          assetIds.push(...ids)
+          onFileStatus?.(i, 'processing', ids[0])
         }
         onFileStatus?.(i, 'done')
       } catch (err) {

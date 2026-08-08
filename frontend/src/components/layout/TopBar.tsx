@@ -1,5 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
+import { Link } from 'react-router-dom'
 import { useUIStore } from '../../stores/uiStore'
+import { useUploadStore } from '../../stores/uploadStore'
 import { SearchBar } from '../search/SearchBar'
 
 interface Props {
@@ -14,8 +16,11 @@ export function TopBar({ onUploadFiles, onUploadFolder, onCollectClick, onBack }
   const setTheme = useUIStore((s) => s.setTheme)
   const toggleSidebar = useUIStore((s) => s.toggleSidebar)
   const collapsed = useUIStore((s) => s.sidebarCollapsed)
+  const items = useUploadStore((s) => s.items)
   const [uploadMenuOpen, setUploadMenuOpen] = useState(false)
   const menuRef = useRef<HTMLDivElement>(null)
+
+  const activeCount = items.filter((i) => i.status === 'uploading' || i.status === 'processing').length
 
   // 点击外部关闭下拉菜单
   useEffect(() => {
@@ -58,6 +63,19 @@ export function TopBar({ onUploadFiles, onUploadFolder, onCollectClick, onBack }
         >
           🔗 采集
         </button>
+        {/* 上传页链接（带活跃任务徽标） */}
+        <Link
+          to="/upload"
+          className="relative px-3 py-1.5 rounded-lg bg-zinc-100 dark:bg-zinc-800 hover:bg-zinc-200 dark:hover:bg-zinc-700 text-sm font-medium"
+          title="上传队列"
+        >
+          📤 上传页
+          {activeCount > 0 && (
+            <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 bg-teal-500 text-white text-[10px] rounded-full flex items-center justify-center font-medium">
+              {activeCount}
+            </span>
+          )}
+        </Link>
         {/* 上传下拉按钮 */}
         <div className="relative" ref={menuRef}>
           <button
